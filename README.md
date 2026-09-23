@@ -18,10 +18,10 @@ GitHub Action for automatically uploading FiveM resources to the CFX Portal.
 
 ## Quick Start
 
-### 1. Create Asset on CFX Portal
+### 1. Choose an Asset Name
 
-Go to [portal.cfx.re](https://portal.cfx.re) and create an asset for your
-resource. Note the **asset name** — you'll need it later.
+Use the asset name you want for your resource. If an asset with that exact name
+does not exist yet, the action creates it automatically before uploading.
 
 ### 2. Get Authentication Cookie
 

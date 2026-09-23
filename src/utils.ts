@@ -361,7 +361,7 @@ export async function resolveAssetId(
 
   try {
     const search = await axios.get<SearchResponse>(
-      `https://portal-api.cfx.re/v1/me/assets?search=${name}&sort=asset.name&direction=asc`,
+      `https://portal-api.cfx.re/v1/me/assets?search=${encodeURIComponent(name)}&sort=asset.name&direction=asc`,
       {
         headers: {
           Cookie: cookies
@@ -372,13 +372,29 @@ export async function resolveAssetId(
     core.info(`📊 Found ${search.data.items.length} assets matching search`)
 
     if (search.data.items.length == 0) {
-      core.error(`❌ No assets found matching: "${name}"`)
-      core.error(
-        '💡 Make sure the asset exists in your CFX Portal and the name is correct'
+      core.info(`🆕 Asset "${name}" does not exist; creating it...`)
+      const created = await axios.post<
+        { id?: unknown; asset_id?: unknown; asset?: { id?: unknown } }
+      >(
+        'https://portal-api.cfx.re/v1/me/assets',
+        { name },
+        { headers: { Cookie: cookies } }
       )
-      throw new Error(
-        `No assets found matching "${name}". Check if the asset exists in your CFX Portal.`
-      )
+      const createdId =
+        created.data.id ?? created.data.asset_id ?? created.data.asset?.id
+
+      if (
+        typeof createdId !== 'number' ||
+        !Number.isSafeInteger(createdId) ||
+        createdId <= 0
+      ) {
+        throw new Error(
+          `CFX Portal returned an invalid asset ID while creating "${name}".`
+        )
+      }
+
+      core.info(`✅ Created asset: "${name}" (ID: ${createdId})`)
+      return createdId.toString()
     }
 
     core.info('📋 Available assets:')
