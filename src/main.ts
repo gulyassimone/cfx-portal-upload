@@ -9,9 +9,11 @@ import {
   ReUploadResponse,
   SSOResponseBody,
   BuildOptions,
-  DeployConfig
+  DeployConfig,
+  UploadedVersion
 } from './types'
 import { deployAsset, rollbackToServer } from './deploy'
+import { parseUploadedVersion } from './upload-version'
 import { sendDiscordNotification } from './discord'
 import {
   deleteIfExists,
@@ -270,6 +272,8 @@ export async function run(): Promise<void> {
       if (shouldCreateOpenSource) uploadTypes.push('open-source')
       core.info(`🚀 Creating versions: ${uploadTypes.join(', ')}`)
 
+      let uploadedForDeployment: UploadedVersion | undefined
+
       // Check if we should create multiple versions
       if (shouldCreateEscrowed || shouldCreateOpenSource) {
         core.info('🚀 Using multi-version upload logic')
@@ -306,7 +310,12 @@ export async function run(): Promise<void> {
           }
 
           core.info('Uploading escrowed version ...')
-          await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies)
+          uploadedForDeployment = await uploadZip(
+            zipPaths.escrowed,
+            escrowedId,
+            chunkSize,
+            cookies
+          )
         }
 
         // Upload open source version
@@ -331,7 +340,13 @@ export async function run(): Promise<void> {
           }
 
           core.info('Uploading open source version ...')
-          await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies)
+          const uploadedOpenSource = await uploadZip(
+            zipPaths.openSource,
+            openSourceId,
+            chunkSize,
+            cookies
+          )
+          uploadedForDeployment ??= uploadedOpenSource
         }
       } else {
         core.info('⚠️ Using single upload logic (fallback)')
@@ -345,7 +360,12 @@ export async function run(): Promise<void> {
         }
 
         zipPath = await getZipPath(assetName, zipPath, makeZip)
-        await uploadZip(zipPath, assetId, chunkSize, cookies)
+        uploadedForDeployment = await uploadZip(
+          zipPath,
+          assetId,
+          chunkSize,
+          cookies
+        )
       }
 
       // Deploy after successful upload
@@ -355,7 +375,16 @@ export async function run(): Promise<void> {
       let deployed = false
       if (deployConfig.enabled) {
         if (assetToDeployName) {
-          await deployAsset(cookies, assetToDeployName, deployConfig)
+          if (!uploadedForDeployment)
+            throw new Error(
+              'Missing uploaded version identity; deployment is blocked.'
+            )
+          await deployAsset(
+            cookies,
+            assetToDeployName,
+            deployConfig,
+            uploadedForDeployment
+          )
           deployed = true
         } else {
           core.warning('Deploy enabled but no asset name found to deploy')
@@ -559,7 +588,7 @@ async function startReupload(
   assetId: string,
   chunkSize: number,
   cookies: string
-): Promise<void> {
+): Promise<UploadedVersion> {
   const stats = statSync(zipPath)
   const totalSize = stats.size
   const originalFileName = basename(zipPath)
@@ -594,6 +623,7 @@ async function startReupload(
       'Failed to re-upload file. See debug logs for more information.'
     )
   }
+  return parseUploadedVersion(reUploadReponse.data, assetId)
 }
 
 /**
@@ -610,8 +640,8 @@ async function uploadZip(
   assetId: string,
   chunkSize: number,
   cookies: string
-): Promise<void> {
-  await startReupload(zipPath, assetId, chunkSize, cookies)
+): Promise<UploadedVersion> {
+  const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies)
 
   let chunkIndex = 0
 
@@ -642,6 +672,7 @@ async function uploadZip(
   }
 
   await completeUpload(assetId, cookies)
+  return uploaded
 }
 
 /**

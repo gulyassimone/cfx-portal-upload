@@ -7,7 +7,8 @@ import {
   SSHConfig,
   DeployConfig,
   PortalAsset,
-  PortalAssetsResponse
+  PortalAssetsResponse,
+  UploadedVersion
 } from './types'
 
 const PORTAL_API = 'https://portal-api.cfx.re/v1'
@@ -44,41 +45,35 @@ async function findAssetByName(
   throw new Error(`Asset "${assetName}" not found on CFX Portal`)
 }
 
-/**
- * Wait for asset version to become active
- */
-async function waitForActiveVersion(
+/** Wait only for the version created by this upload, including its pack. */
+export async function waitForUploadedVersion(
   cookie: string,
   assetName: string,
-  maxAttempts: number = 10,
-  delayMs: number = 5000
-): Promise<PortalAsset> {
-  core.info(`Waiting for asset "${assetName}" to have an active version...`)
-
+  uploaded: UploadedVersion,
+  maxAttempts = 60,
+  delayMs = 5000
+): Promise<{ asset: PortalAsset; version: PortalAsset['versions'][number] }> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const asset = await findAssetByName(cookie, assetName)
-
-    if (asset.versions && asset.versions.length > 0) {
-      const activeVersion = asset.versions.find(v => v.state === 'active')
-      if (activeVersion) {
-        core.info(`Found active version: ${activeVersion.id}`)
-        return asset
-      }
-
-      // Log current states
-      const states = asset.versions.map(v => v.state).join(', ')
-      core.info(`Attempt ${attempt}/${maxAttempts}: Version states: ${states}`)
+    if (asset.id !== uploaded.assetId) {
+      throw new Error(
+        'Portal asset does not match the uploaded asset; deployment is blocked.'
+      )
     }
-
+    const version = asset.versions?.find(v => v.id === uploaded.versionId)
+    if (version?.state === 'active' && version.packs?.length > 0) {
+      core.info(`Uploaded version is ready: ${uploaded.versionId}`)
+      return { asset, version }
+    }
+    core.info(
+      `Waiting for uploaded version ${uploaded.versionId}: ${version?.state || 'not visible'} (${attempt}/${maxAttempts})`
+    )
     if (attempt < maxAttempts) {
-      core.info(`Waiting ${delayMs / 1000}s before retry...`)
       await new Promise(resolve => setTimeout(resolve, delayMs))
     }
   }
-
   throw new Error(
-    `Asset "${assetName}" has no active version after ${maxAttempts} attempts. ` +
-      `The version may still be processing. Try again later.`
+    `Uploaded version ${uploaded.versionId} is not ready; deployment is blocked. No older version will be used.`
   )
 }
 
@@ -87,25 +82,16 @@ async function waitForActiveVersion(
  */
 export async function downloadAsset(
   cookie: string,
-  assetName: string
+  assetName: string,
+  uploaded: UploadedVersion
 ): Promise<string> {
   core.info(`Downloading asset "${assetName}" from CFX Portal...`)
 
-  // Wait for asset to have an active version (may take time after upload)
-  const asset = await waitForActiveVersion(cookie, assetName)
-
-  if (!asset.versions || asset.versions.length === 0) {
-    throw new Error(`Asset "${assetName}" has no versions`)
-  }
-
-  const version = asset.versions.find(v => v.state === 'active')
-  if (!version) {
-    throw new Error(`Asset "${assetName}" has no active versions`)
-  }
-
-  if (!version.packs || version.packs.length === 0) {
-    throw new Error(`Version ${version.id} has no packs`)
-  }
+  const { asset, version } = await waitForUploadedVersion(
+    cookie,
+    assetName,
+    uploaded
+  )
 
   const pack = version.packs[0]
 
@@ -386,7 +372,8 @@ async function runRemoteCommand(
 export async function deployAsset(
   cookie: string,
   assetName: string,
-  deployConfig: DeployConfig
+  deployConfig: DeployConfig,
+  uploaded: UploadedVersion
 ): Promise<void> {
   if (!deployConfig.enabled || !deployConfig.sshConfig) {
     return
@@ -398,7 +385,7 @@ export async function deployAsset(
   core.info('='.repeat(50))
 
   // Download asset from portal (ZIP contains resource folder inside)
-  const zipPath = await downloadAsset(cookie, assetName)
+  const zipPath = await downloadAsset(cookie, assetName, uploaded)
 
   // Deploy to server - just extract to deploy_path, folder is already in ZIP
   await deployToServer(

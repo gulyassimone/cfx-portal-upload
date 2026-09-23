@@ -1,5 +1,6 @@
 export interface ReUploadResponse {
   asset_id: number
+  version_id: number
   errors: null
 }
 
@@ -86,4 +87,10 @@ export interface PortalAssetsResponse {
   items: PortalAsset[]
   page: number
   page_count: number
+}
+
+/** Identity returned when CFX creates the version for this upload. */
+export interface UploadedVersion {
+  assetId: number
+  versionId: number
 }
