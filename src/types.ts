@@ -62,6 +62,7 @@ export interface DeployConfig {
   sshConfig?: SSHConfig
   deployPath: string
   resourceName?: string
+  backupPath: string
 }
 
 export interface AssetVersionInfo {

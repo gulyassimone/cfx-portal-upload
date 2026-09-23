@@ -9,10 +9,9 @@ import {
   ReUploadResponse,
   SSOResponseBody,
   BuildOptions,
-  DeployConfig,
-  SSHConfig
+  DeployConfig
 } from './types'
-import { deployAsset } from './deploy'
+import { deployAsset, rollbackToServer } from './deploy'
 import { sendDiscordNotification } from './discord'
 import {
   deleteIfExists,
@@ -29,6 +28,40 @@ import {
  * @returns {Promise<void>} Resolves when the action is complete.
  */
 export async function run(): Promise<void> {
+  const rollbackMode = core.getInput('rollback').toLowerCase() === 'true'
+
+  if (rollbackMode) {
+    try {
+      const sshHost = core.getInput('ssh_host')
+      const sshUser = core.getInput('ssh_user')
+      const sshKey = core.getInput('ssh_key')
+      const sshPort = parseInt(core.getInput('ssh_port') || '22')
+      const deployPath = core.getInput('deploy_path') || '~/fivem/resources'
+      const resourceName = core.getInput('deploy_resource_name')
+      const backupPath =
+        core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups'
+      const backupId = core.getInput('rollback_backup')
+
+      if (!sshHost || !sshUser || !sshKey || !resourceName || !backupId) {
+        throw new Error(
+          'Rollback requires ssh_host, ssh_user, ssh_key, deploy_resource_name and rollback_backup'
+        )
+      }
+
+      await rollbackToServer(
+        { host: sshHost, port: sshPort, username: sshUser, privateKey: sshKey },
+        deployPath,
+        resourceName,
+        backupPath,
+        backupId
+      )
+      return
+    } catch (error) {
+      core.setFailed(error instanceof Error ? error.message : String(error))
+      return
+    }
+  }
+
   await preparePuppeteer()
 
   // Try to find system Chrome executable
@@ -107,12 +140,15 @@ export async function run(): Promise<void> {
     const sshPort = parseInt(core.getInput('ssh_port') || '22')
     const deployPath = core.getInput('deploy_path') || '~/fivem/resources'
     const deployResourceName = core.getInput('deploy_resource_name')
+    const deployBackupPath =
+      core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups'
     const discordWebhook = core.getInput('discord_webhook')
 
     const deployConfig: DeployConfig = {
       enabled: deployEnabled && !!sshHost && !!sshUser && !!sshKey,
       deployPath,
-      resourceName: deployResourceName || undefined
+      resourceName: deployResourceName || undefined,
+      backupPath: deployBackupPath
     }
 
     if (deployConfig.enabled) {

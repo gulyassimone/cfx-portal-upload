@@ -177,7 +177,9 @@ export async function downloadAsset(
 export async function deployToServer(
   sshConfig: SSHConfig,
   deployPath: string,
-  zipPath: string
+  zipPath: string,
+  resourceName: string,
+  backupPath: string
 ): Promise<void> {
   core.info(`Deploying to ${sshConfig.host}...`)
 
@@ -212,18 +214,23 @@ export async function deployToServer(
 
           // Expand ~ to $HOME in the shell, and construct the path there
           // This ensures tilde expansion works correctly
-          const expandedPath = deployPath.startsWith('~')
-            ? `$HOME${deployPath.slice(1)}`
-            : deployPath
+          const backupId = `${new Date()
+            .toISOString()
+            .replace(/[-:.]/g, '')}-${sanitizeIdentifier(
+            process.env.GITHUB_REF_NAME || process.env.GITHUB_SHA || 'unknown'
+          )}`
+          const resourcePath = `${deployPath}/${resourceName}`
+          const snapshotPath = `${backupPath}/${resourceName}/${backupId}`
 
-          core.info(`Extracting to ${expandedPath}...`)
+          core.info(`Extracting to ${deployPath}...`)
+          core.info(`Creating backup ${backupId} before extraction...`)
 
-          // ZIP already contains the resource folder (e.g., ghostbusters/)
-          // Just extract directly to deploy_path and the folder will be created
           const commands = [
-            `mkdir -p "${expandedPath}"`,
-            `unzip -o "${remoteTempPath}" -d "${expandedPath}"`,
-            `rm "${remoteTempPath}"`
+            `mkdir -p ${remotePathQuote(snapshotPath)}`,
+            `if [ -d ${remotePathQuote(resourcePath)} ]; then cp -a ${remotePathQuote(resourcePath)}/. ${remotePathQuote(snapshotPath)}/; fi`,
+            `mkdir -p ${remotePathQuote(deployPath)}`,
+            `unzip -o ${shellQuote(remoteTempPath)} -d ${remotePathQuote(deployPath)}`,
+            `rm -f ${shellQuote(remoteTempPath)}`
           ]
 
           const fullCommand = commands.join(' && ')
@@ -256,7 +263,10 @@ export async function deployToServer(
                 return
               }
 
-              core.info(`Resource deployed to ${expandedPath}`)
+              core.info(
+                `Resource installed to ${deployPath}/${resourceName}; restart is required before operation can be verified`
+              )
+              core.info(`Backup saved as ${backupId}`)
               resolve()
             })
           })
@@ -270,6 +280,97 @@ export async function deployToServer(
 
     core.info(`Connecting to ${sshConfig.host}:${sshConfig.port}...`)
 
+    conn.connect({
+      host: sshConfig.host,
+      port: sshConfig.port,
+      username: sshConfig.username,
+      privateKey: sshConfig.privateKey
+    })
+  })
+}
+
+/** Restore a snapshot without restarting the server. */
+export async function rollbackToServer(
+  sshConfig: SSHConfig,
+  deployPath: string,
+  resourceName: string,
+  backupPath: string,
+  backupId: string
+): Promise<void> {
+  if (!/^[A-Za-z0-9._-]+$/.test(backupId)) {
+    throw new Error('Invalid rollback backup identifier')
+  }
+
+  return runRemoteCommand(
+    sshConfig,
+    [
+      `resource_path=${remotePathQuote(`${deployPath}/${resourceName}`)}`,
+      `snapshot_path=${remotePathQuote(`${backupPath}/${resourceName}/${backupId}`)}`,
+      'test -d "$snapshot_path"',
+      'rm -rf "$resource_path"',
+      'mkdir -p "$resource_path"',
+      'cp -a "$snapshot_path"/. "$resource_path"/'
+    ],
+    `Resource rolled back from ${backupId}; restart is required before operation can be verified`
+  )
+}
+
+function sanitizeIdentifier(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '_')
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
+function remotePathQuote(value: string): string {
+  if (value === '~') return '"$HOME"'
+  if (value.startsWith('~/')) {
+    return `"$HOME"${shellQuote(value.slice(1))}`
+  }
+  return shellQuote(value)
+}
+
+async function runRemoteCommand(
+  sshConfig: SSHConfig,
+  commands: string[],
+  successMessage: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const conn = new Client()
+
+    conn.on('ready', () => {
+      conn.exec(commands.join(' && '), (execErr, stream) => {
+        if (execErr) {
+          conn.end()
+          reject(execErr)
+          return
+        }
+
+        let output = ''
+        let errorOutput = ''
+        stream.on('data', (data: Buffer) => {
+          output += data.toString()
+        })
+        stream.stderr.on('data', (data: Buffer) => {
+          errorOutput += data.toString()
+        })
+        stream.on('close', (code: number) => {
+          conn.end()
+          if (code !== 0) {
+            core.warning(`Command output: ${output}`)
+            core.error(`Command error: ${errorOutput}`)
+            reject(new Error(`SSH command failed with code ${code}`))
+            return
+          }
+          core.info(successMessage)
+          resolve()
+        })
+      })
+    })
+    conn.on('error', err =>
+      reject(new Error(`SSH connection error: ${err.message}`))
+    )
     conn.connect({
       host: sshConfig.host,
       port: sshConfig.port,
@@ -300,7 +401,13 @@ export async function deployAsset(
   const zipPath = await downloadAsset(cookie, assetName)
 
   // Deploy to server - just extract to deploy_path, folder is already in ZIP
-  await deployToServer(deployConfig.sshConfig, deployConfig.deployPath, zipPath)
+  await deployToServer(
+    deployConfig.sshConfig,
+    deployConfig.deployPath,
+    zipPath,
+    deployConfig.resourceName || assetName,
+    deployConfig.backupPath
+  )
 
   // Cleanup
   try {

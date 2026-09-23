@@ -11,7 +11,7 @@ branding:
 inputs:
   cookie:
     description: 'Your Forum Account Cookie (_t cookie from forum.cfx.re)'
-    required: true
+    required: false
   chunkSize:
     description:
       'Upload chunk size in bytes (default: 2MB, recommended: 5-20MB for large
@@ -76,6 +76,17 @@ inputs:
     default: '~/fivem/resources'
   deploy_resource_name:
     description: 'Resource folder name on server (defaults to asset_name)'
+    required: false
+  deploy_backup_path:
+    description: 'Backup directory outside the resources directory'
+    required: false
+    default: '~/.cfx-portal-upload/backups'
+  rollback:
+    description: 'Restore a selected deployment backup instead of uploading'
+    required: false
+    default: 'false'
+  rollback_backup:
+    description: 'Backup identifier to restore when rollback is enabled'
     required: false
 
   # Discord notifications (optional)

@@ -185,6 +185,32 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
     deploy_resource_name: 'my-resource'
 ```
 
+Each deployment first saves the complete current resource directory outside
+`deploy_path`. The backup identifier contains the UTC timestamp and the GitHub
+ref or commit. Deployment is reported as installed, but not yet verified:
+neither deployment nor rollback restarts the server.
+
+To manually restore a backup, run the action with the selected identifier:
+
+```yaml
+- name: Roll back resource files
+  uses: luman-studio/cfx-portal-upload@main
+  with:
+    cookie: unused-for-rollback
+    deploy: true
+    rollback: true
+    rollback_backup: '20260923T120000000Z-v1.2.3'
+    deploy_resource_name: 'my-resource'
+    ssh_host: ${{ secrets.SERVER_HOST }}
+    ssh_user: ${{ secrets.SERVER_USER }}
+    ssh_key: ${{ secrets.SSH_KEY }}
+    deploy_path: '~/server-data/resources'
+```
+
+Rollback replaces the whole resource directory, removing files introduced by the
+newer release. It restores files only; database data and running process state
+are unchanged.
+
 ### SSH Key Setup
 
 1. Generate an SSH key:
@@ -210,20 +236,23 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
 
 ### Action Inputs
 
-| Parameter              | Type    | Required | Description                              |
-| ---------------------- | ------- | -------- | ---------------------------------------- |
-| `cookie`               | string  | Yes      | Value of `_t` cookie from forum.cfx.re   |
-| `escrowed`             | yaml    | No       | Escrowed version configuration           |
-| `openSource`           | yaml    | No       | Open source version configuration        |
-| `resourcePath`         | string  | No       | Path to resource folder (for monorepos)  |
-| `skipUpload`           | boolean | No       | Skip upload, authenticate only           |
-| `deploy`               | boolean | No       | Enable deploy to server after upload     |
-| `ssh_host`             | string  | No       | SSH host address for deployment          |
-| `ssh_user`             | string  | No       | SSH username                             |
-| `ssh_key`              | string  | No       | SSH private key                          |
-| `ssh_port`             | string  | No       | SSH port (default: 22)                   |
-| `deploy_path`          | string  | No       | Path to resources folder on server       |
-| `deploy_resource_name` | string  | No       | Resource folder name (defaults to asset) |
+| Parameter              | Type    | Required | Description                                 |
+| ---------------------- | ------- | -------- | ------------------------------------------- |
+| `cookie`               | string  | Yes      | Value of `_t` cookie from forum.cfx.re      |
+| `escrowed`             | yaml    | No       | Escrowed version configuration              |
+| `openSource`           | yaml    | No       | Open source version configuration           |
+| `resourcePath`         | string  | No       | Path to resource folder (for monorepos)     |
+| `skipUpload`           | boolean | No       | Skip upload, authenticate only              |
+| `deploy`               | boolean | No       | Enable deploy to server after upload        |
+| `ssh_host`             | string  | No       | SSH host address for deployment             |
+| `ssh_user`             | string  | No       | SSH username                                |
+| `ssh_key`              | string  | No       | SSH private key                             |
+| `ssh_port`             | string  | No       | SSH port (default: 22)                      |
+| `deploy_path`          | string  | No       | Path to resources folder on server          |
+| `deploy_resource_name` | string  | No       | Resource folder name (defaults to asset)    |
+| `deploy_backup_path`   | string  | No       | Backup directory outside `deploy_path`      |
+| `rollback`             | boolean | No       | Restore a selected backup instead of upload |
+| `rollback_backup`      | string  | No       | Backup identifier to restore                |
 
 ### Version Configuration
 
