@@ -318386,6 +318386,7 @@ const form_data_1 = __importDefault(__nccwpck_require__(96842));
 const axios_1 = __importDefault(__nccwpck_require__(89204));
 const fs_1 = __nccwpck_require__(79896);
 const path_1 = __nccwpck_require__(16928);
+const types_1 = __nccwpck_require__(7715);
 const deploy_1 = __nccwpck_require__(68567);
 const upload_version_1 = __nccwpck_require__(28084);
 const discord_1 = __nccwpck_require__(742);
@@ -318436,6 +318437,8 @@ async function run() {
         let zipPath = core.getInput('zipPath');
         const makeZip = core.getInput('makeZip').toLowerCase() === 'true';
         const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true';
+        const createIfMissing = core.getInput('createIfMissing').toLowerCase() === 'true';
+        const assetVersion = core.getInput('assetVersion') || '1.0.0';
         // Version config inputs
         const escrowedInput = core.getInput('escrowed');
         const openSourceInput = core.getInput('openSource');
@@ -318582,13 +318585,24 @@ async function run() {
                     }
                     else if (escrowedConfig?.asset_name) {
                         core.info(`Looking up escrowed asset by name: ${escrowedConfig.asset_name}`);
-                        escrowedId = await (0, utils_1.resolveAssetId)(escrowedConfig.asset_name, cookies);
+                        if (createIfMissing) {
+                            const existing = await (0, utils_1.findAssetId)(escrowedConfig.asset_name, cookies);
+                            if (!existing) {
+                                uploadedForDeployment = await createAsset(zipPaths.escrowed, escrowedConfig.asset_name, assetVersion, chunkSize, cookies);
+                                escrowedId = '';
+                            }
+                            else
+                                escrowedId = existing;
+                        }
+                        else
+                            escrowedId = await (0, utils_1.resolveAssetId)(escrowedConfig.asset_name, cookies);
                     }
                     else {
                         throw new Error('Escrowed config must include asset_id or asset_name');
                     }
                     core.info('Uploading escrowed version ...');
-                    uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies);
+                    if (escrowedId)
+                        uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies);
                 }
                 // Upload open source version
                 if (zipPaths.openSource && shouldCreateOpenSource) {
@@ -318599,14 +318613,27 @@ async function run() {
                     }
                     else if (openSourceConfig?.asset_name) {
                         core.info(`Looking up openSource asset by name: ${openSourceConfig.asset_name}`);
-                        openSourceId = await (0, utils_1.resolveAssetId)(openSourceConfig.asset_name, cookies);
+                        if (createIfMissing) {
+                            const existing = await (0, utils_1.findAssetId)(openSourceConfig.asset_name, cookies);
+                            if (!existing) {
+                                const created = await createAsset(zipPaths.openSource, openSourceConfig.asset_name, assetVersion, chunkSize, cookies);
+                                uploadedForDeployment ??= created;
+                                openSourceId = '';
+                            }
+                            else
+                                openSourceId = existing;
+                        }
+                        else
+                            openSourceId = await (0, utils_1.resolveAssetId)(openSourceConfig.asset_name, cookies);
                     }
                     else {
                         throw new Error('OpenSource config must include asset_id or asset_name');
                     }
                     core.info('Uploading open source version ...');
-                    const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies);
-                    uploadedForDeployment ??= uploadedOpenSource;
+                    if (openSourceId) {
+                        const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies);
+                        uploadedForDeployment ??= uploadedOpenSource;
+                    }
                 }
             }
             else {
@@ -318614,12 +318641,21 @@ async function run() {
                 core.info(`  assetName: ${assetName}`);
                 core.info(`  assetId: ${assetId}`);
                 // Original single upload logic
-                if (assetName) {
-                    core.info(`🔍 Looking up single asset by name: ${assetName}`);
-                    assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
+                if (assetName && createIfMissing && !assetId) {
+                    const existing = await (0, utils_1.findAssetId)(assetName, cookies);
+                    zipPath = await getZipPath(assetName, zipPath, makeZip);
+                    uploadedForDeployment = existing
+                        ? await uploadZip(zipPath, existing, chunkSize, cookies)
+                        : await createAsset(zipPath, assetName, assetVersion, chunkSize, cookies);
                 }
-                zipPath = await getZipPath(assetName, zipPath, makeZip);
-                uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies);
+                else {
+                    if (assetName) {
+                        core.info(`🔍 Looking up single asset by name: ${assetName}`);
+                        assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
+                    }
+                    zipPath = await getZipPath(assetName, zipPath, makeZip);
+                    uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies);
+                }
             }
             // Deploy after successful upload
             const assetToDeployName = escrowedConfig?.asset_name || openSourceConfig?.asset_name || assetName;
@@ -318851,6 +318887,44 @@ async function uploadZip(zipPath, assetId, chunkSize, cookies) {
     await completeUpload(assetId, cookies);
     return uploaded;
 }
+/** Follow the Portal's create flow, which uses version-scoped chunk endpoints. */
+async function createAsset(zipPath, assetName, version, chunkSize, cookies) {
+    const totalSize = (0, fs_1.statSync)(zipPath).size;
+    if (!totalSize || chunkSize <= 0)
+        throw new Error('Asset ZIP must be nonempty and chunkSize positive');
+    const response = await axios_1.default.post(`${types_1.Urls.API}me/assets`, {
+        name: assetName,
+        chunk_count: Math.ceil(totalSize / chunkSize),
+        chunk_size: chunkSize,
+        total_size: totalSize,
+        original_file_name: (0, path_1.basename)(zipPath),
+        release_candidate: false,
+        version
+    }, { headers: { Cookie: cookies } });
+    const { asset_id: assetId, version_id: versionId } = response.data;
+    if (!Number.isSafeInteger(assetId) || !Number.isSafeInteger(versionId)) {
+        throw new Error('Portal did not return an asset ID and version ID for the new asset');
+    }
+    const url = `${types_1.Urls.API}assets/${assetId}/versions/${versionId}`;
+    let index = 0;
+    for await (const chunk of (0, fs_1.createReadStream)(zipPath, {
+        highWaterMark: chunkSize
+    })) {
+        const form = new form_data_1.default();
+        form.append('chunk_id', String(index));
+        form.append('chunk', chunk, {
+            filename: 'blob',
+            contentType: 'application/octet-stream'
+        });
+        await axios_1.default.post(`${url}/upload-chunk`, form, {
+            headers: { ...form.getHeaders(), Cookie: cookies }
+        });
+        index++;
+    }
+    await axios_1.default.post(`${url}/complete-upload`, {}, { headers: { Cookie: cookies } });
+    core.info(`Created asset "${assetName}" (ID: ${assetId}, version: ${versionId})`);
+    return { assetId, versionId };
+}
 /**
  * Completes the upload process.
  * @param assetId
@@ -318960,6 +319034,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getResourceName = getResourceName;
 exports.preparePuppeteer = preparePuppeteer;
 exports.resolveAssetId = resolveAssetId;
+exports.findAssetId = findAssetId;
 exports.getUrl = getUrl;
 exports.getEnv = getEnv;
 exports.zipAsset = zipAsset;
@@ -319308,6 +319383,11 @@ async function resolveAssetId(name, cookies) {
         }
         throw error;
     }
+}
+/** Return only an exact match; API or authentication errors must not trigger creation. */
+async function findAssetId(name, cookies) {
+    const response = await axios_1.default.get(`${types_1.Urls.API}me/assets?search=${encodeURIComponent(name)}&sort=asset.name&direction=asc`, { headers: { Cookie: cookies } });
+    return response.data.items.find(asset => asset.name === name)?.id.toString();
 }
 function getUrl(type, id) {
     const url = types_1.Urls.API + types_1.Urls[type];

@@ -25,6 +25,11 @@ export enum Urls {
   COMPLETE_UPLOAD = 'assets/{id}/complete-upload'
 }
 
+export interface CreateAssetResponse {
+  asset_id: number
+  version_id: number
+}
+
 export interface AssetConfig {
   asset_id?: string
   asset_name?: string

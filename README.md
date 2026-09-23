@@ -20,8 +20,23 @@ GitHub Action for automatically uploading FiveM resources to the CFX Portal.
 
 ### 1. Choose an Asset Name
 
-Use the asset name you want for your resource. If an asset with that exact name
-does not exist yet, the action creates it automatically before uploading.
+Go to [portal.cfx.re](https://portal.cfx.re) and create an asset for your
+resource, or set `createIfMissing: 'true'` in the action to create it on the
+first run. Note the **asset name** — you'll need it later.
+
+For example, add these inputs to the upload step:
+
+```yaml
+with:
+  cookie: ${{ secrets.FORUM_COOKIE }}
+  assetName: sa_garage
+  createIfMissing: 'true'
+  assetVersion: '1.0.0'
+```
+
+For `escrowed` or `openSource` configuration, supply `asset_name`; an explicit
+`asset_id` always targets an existing asset. If a search fails due to an API or
+authentication error, the action stops instead of creating an asset.
 
 ### 2. Get Authentication Cookie
 
@@ -185,10 +200,10 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
     deploy_resource_name: 'my-resource'
 ```
 
-Deployment follows the `asset_id` and `version_id` returned by CFX for the current
-upload. It waits up to roughly five minutes for that exact version and its pack;
-missing identities or a timeout fail the action instead of deploying another
-active version.
+Deployment follows the `asset_id` and `version_id` returned by CFX for the
+current upload. It waits up to roughly five minutes for that exact version and
+its pack; missing identities or a timeout fail the action instead of deploying
+another active version.
 
 Each deployment first saves the complete current resource directory outside
 `deploy_path`. The backup identifier contains the UTC timestamp and the GitHub
@@ -241,23 +256,25 @@ are unchanged.
 
 ### Action Inputs
 
-| Parameter              | Type    | Required | Description                                 |
-| ---------------------- | ------- | -------- | ------------------------------------------- |
-| `cookie`               | string  | Yes      | Value of `_t` cookie from forum.cfx.re      |
-| `escrowed`             | yaml    | No       | Escrowed version configuration              |
-| `openSource`           | yaml    | No       | Open source version configuration           |
-| `resourcePath`         | string  | No       | Path to resource folder (for monorepos)     |
-| `skipUpload`           | boolean | No       | Skip upload, authenticate only              |
-| `deploy`               | boolean | No       | Enable deploy to server after upload        |
-| `ssh_host`             | string  | No       | SSH host address for deployment             |
-| `ssh_user`             | string  | No       | SSH username                                |
-| `ssh_key`              | string  | No       | SSH private key                             |
-| `ssh_port`             | string  | No       | SSH port (default: 22)                      |
-| `deploy_path`          | string  | No       | Path to resources folder on server          |
-| `deploy_resource_name` | string  | No       | Resource folder name (defaults to asset)    |
-| `deploy_backup_path`   | string  | No       | Backup directory outside `deploy_path`      |
-| `rollback`             | boolean | No       | Restore a selected backup instead of upload |
-| `rollback_backup`      | string  | No       | Backup identifier to restore                |
+| Parameter              | Type    | Required | Description                                                  |
+| ---------------------- | ------- | -------- | ------------------------------------------------------------ |
+| `cookie`               | string  | Yes      | Value of `_t` cookie from forum.cfx.re                       |
+| `escrowed`             | yaml    | No       | Escrowed version configuration                               |
+| `openSource`           | yaml    | No       | Open source version configuration                            |
+| `resourcePath`         | string  | No       | Path to resource folder (for monorepos)                      |
+| `skipUpload`           | boolean | No       | Skip upload, authenticate only                               |
+| `createIfMissing`      | boolean | No       | Create an asset if its exact name is absent (default: false) |
+| `assetVersion`         | string  | No       | Version when creating an asset (default: 1.0.0)              |
+| `deploy`               | boolean | No       | Enable deploy to server after upload                         |
+| `ssh_host`             | string  | No       | SSH host address for deployment                              |
+| `ssh_user`             | string  | No       | SSH username                                                 |
+| `ssh_key`              | string  | No       | SSH private key                                              |
+| `ssh_port`             | string  | No       | SSH port (default: 22)                                       |
+| `deploy_path`          | string  | No       | Path to resources folder on server                           |
+| `deploy_resource_name` | string  | No       | Resource folder name (defaults to asset)                     |
+| `deploy_backup_path`   | string  | No       | Backup directory outside `deploy_path`                       |
+| `rollback`             | boolean | No       | Restore a selected backup instead of upload                  |
+| `rollback_backup`      | string  | No       | Backup identifier to restore                                 |
 
 ### Version Configuration
 

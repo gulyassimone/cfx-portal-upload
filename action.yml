@@ -33,6 +33,14 @@ inputs:
   assetName:
     description: 'Asset name for simple single upload (will lookup ID)'
     required: false
+  createIfMissing:
+    description: 'Create an asset when its exact name is not found in Portal'
+    required: false
+    default: 'false'
+  assetVersion:
+    description: 'Version for a newly created asset (default: 1.0.0)'
+    required: false
+    default: '1.0.0'
   makeZip:
     description: 'Automatically create ZIP from repository'
     required: false

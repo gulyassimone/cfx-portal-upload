@@ -437,6 +437,18 @@ export async function resolveAssetId(
   }
 }
 
+/** Return only an exact match; API or authentication errors must not trigger creation. */
+export async function findAssetId(
+  name: string,
+  cookies: string
+): Promise<string | undefined> {
+  const response = await axios.get<SearchResponse>(
+    `${Urls.API}me/assets?search=${encodeURIComponent(name)}&sort=asset.name&direction=asc`,
+    { headers: { Cookie: cookies } }
+  )
+  return response.data.items.find(asset => asset.name === name)?.id.toString()
+}
+
 export function getUrl(type: keyof typeof Urls, id?: string): string {
   const url = Urls.API + Urls[type]
   return id ? url.replace('{id}', id) : url

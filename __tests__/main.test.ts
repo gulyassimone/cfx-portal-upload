@@ -7,7 +7,7 @@ import os from 'os'
 import path from 'path'
 import { run } from '../src/main'
 import { deployAsset } from '../src/deploy'
-import { preparePuppeteer, resolveAssetId } from '../src/utils'
+import { preparePuppeteer, resolveAssetId, findAssetId } from '../src/utils'
 
 jest.mock('axios')
 jest.mock('../src/deploy', () => ({
@@ -17,7 +17,8 @@ jest.mock('../src/deploy', () => ({
 jest.mock('../src/utils', () => ({
   ...jest.requireActual<typeof import('../src/utils')>('../src/utils'),
   preparePuppeteer: jest.fn(),
-  resolveAssetId: jest.fn()
+  resolveAssetId: jest.fn(),
+  findAssetId: jest.fn()
 }))
 
 let post: jest.SpiedFunction<typeof axios.post>
@@ -61,6 +62,7 @@ beforeEach(() => {
     .mockResolvedValue(browser as unknown as Browser)
   page.evaluate.mockResolvedValue({ url: 'https://forum.cfx.re/login' })
   ;(resolveAssetId as jest.Mock).mockResolvedValue('7')
+  ;(findAssetId as jest.Mock).mockResolvedValue(undefined)
   post = jest.spyOn(axios, 'post').mockImplementation(
     async (url: string) =>
       await Promise.resolve({
@@ -68,6 +70,30 @@ beforeEach(() => {
           ? { asset_id: 7, version_id: 102, errors: null }
           : {}
       })
+  )
+})
+
+test('creates a missing asset with the Portal version-scoped upload flow', async () => {
+  inputs.createIfMissing = 'true'
+  inputs.assetVersion = '2.0.0'
+  inputs.deploy = 'false'
+  post.mockImplementation(
+    async (url: string) =>
+      ({
+        data: url.endsWith('/me/assets') ? { asset_id: 19, version_id: 42 } : {}
+      }) as any
+  )
+  await run()
+  expect(core.setFailed).not.toHaveBeenCalled()
+  expect(post).toHaveBeenCalledWith(
+    'https://portal-api.cfx.re/v1/me/assets',
+    expect.objectContaining({ name: 'sa_garage', version: '2.0.0' }),
+    expect.any(Object)
+  )
+  expect(post).toHaveBeenCalledWith(
+    'https://portal-api.cfx.re/v1/assets/19/versions/42/complete-upload',
+    {},
+    expect.any(Object)
   )
 })
 
