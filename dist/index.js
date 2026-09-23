@@ -318892,7 +318892,7 @@ async function createAsset(zipPath, assetName, version, chunkSize, cookies) {
     const totalSize = (0, fs_1.statSync)(zipPath).size;
     if (!totalSize || chunkSize <= 0)
         throw new Error('Asset ZIP must be nonempty and chunkSize positive');
-    const response = await axios_1.default.post(`${types_1.Urls.API}me/assets`, {
+    const payload = {
         name: assetName,
         chunk_count: Math.ceil(totalSize / chunkSize),
         chunk_size: chunkSize,
@@ -318900,7 +318900,9 @@ async function createAsset(zipPath, assetName, version, chunkSize, cookies) {
         original_file_name: (0, path_1.basename)(zipPath),
         release_candidate: false,
         version
-    }, { headers: { Cookie: cookies } });
+    };
+    core.info(`Creating asset with Portal payload: ${JSON.stringify(payload)}`);
+    const response = await axios_1.default.post(`${types_1.Urls.API}me/assets`, payload, { headers: { Cookie: cookies } });
     const { asset_id: assetId, version_id: versionId } = response.data;
     if (!Number.isSafeInteger(assetId) || !Number.isSafeInteger(versionId)) {
         throw new Error('Portal did not return an asset ID and version ID for the new asset');

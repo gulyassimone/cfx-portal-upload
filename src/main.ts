@@ -702,17 +702,19 @@ async function createAsset(
   const totalSize = statSync(zipPath).size
   if (!totalSize || chunkSize <= 0)
     throw new Error('Asset ZIP must be nonempty and chunkSize positive')
+  const payload = {
+    name: assetName,
+    chunk_count: Math.ceil(totalSize / chunkSize),
+    chunk_size: chunkSize,
+    total_size: totalSize,
+    original_file_name: basename(zipPath),
+    release_candidate: false,
+    version
+  }
+  core.info(`Creating asset with Portal payload: ${JSON.stringify(payload)}`)
   const response = await axios.post<CreateAssetResponse>(
     `${Urls.API}me/assets`,
-    {
-      name: assetName,
-      chunk_count: Math.ceil(totalSize / chunkSize),
-      chunk_size: chunkSize,
-      total_size: totalSize,
-      original_file_name: basename(zipPath),
-      release_candidate: false,
-      version
-    },
+    payload,
     { headers: { Cookie: cookies } }
   )
   const { asset_id: assetId, version_id: versionId } = response.data
