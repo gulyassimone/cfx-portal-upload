@@ -297,7 +297,8 @@ export async function run(): Promise<void> {
               zipPaths.escrowed,
               escrowedId,
               chunkSize,
-              cookies
+              cookies,
+              assetVersion
             )
         }
 
@@ -345,7 +346,8 @@ export async function run(): Promise<void> {
               zipPaths.openSource,
               openSourceId,
               chunkSize,
-              cookies
+              cookies,
+              assetVersion
             )
             uploadedForDeployment ??= uploadedOpenSource
           }
@@ -365,7 +367,13 @@ export async function run(): Promise<void> {
               : `Asset "${assetName}" was not found; creating it`
           )
           uploadedForDeployment = existing
-            ? await uploadZip(zipPath, existing, chunkSize, cookies)
+            ? await uploadZip(
+                zipPath,
+                existing,
+                chunkSize,
+                cookies,
+                assetVersion
+              )
             : await createAsset(
                 zipPath,
                 assetName,
@@ -384,7 +392,8 @@ export async function run(): Promise<void> {
             zipPath,
             assetId,
             chunkSize,
-            cookies
+            cookies,
+            assetVersion
           )
         }
       }
@@ -608,7 +617,8 @@ async function startReupload(
   zipPath: string,
   assetId: string,
   chunkSize: number,
-  cookies: string
+  cookies: string,
+  version: string
 ): Promise<UploadedVersion> {
   const stats = statSync(zipPath)
   const totalSize = stats.size
@@ -630,7 +640,8 @@ async function startReupload(
         chunk_size: chunkSize,
         name: originalFileName,
         original_file_name: originalFileName,
-        total_size: totalSize
+        total_size: totalSize,
+        version
       },
       {
         headers: {
@@ -669,9 +680,16 @@ async function uploadZip(
   zipPath: string,
   assetId: string,
   chunkSize: number,
-  cookies: string
+  cookies: string,
+  version: string
 ): Promise<UploadedVersion> {
-  const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies)
+  const uploaded = await startReupload(
+    zipPath,
+    assetId,
+    chunkSize,
+    cookies,
+    version
+  )
 
   let chunkIndex = 0
 

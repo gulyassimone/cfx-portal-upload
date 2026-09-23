@@ -318602,7 +318602,7 @@ async function run() {
                     }
                     core.info('Uploading escrowed version ...');
                     if (escrowedId)
-                        uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies);
+                        uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies, assetVersion);
                 }
                 // Upload open source version
                 if (zipPaths.openSource && shouldCreateOpenSource) {
@@ -318631,7 +318631,7 @@ async function run() {
                     }
                     core.info('Uploading open source version ...');
                     if (openSourceId) {
-                        const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies);
+                        const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies, assetVersion);
                         uploadedForDeployment ??= uploadedOpenSource;
                     }
                 }
@@ -318648,7 +318648,7 @@ async function run() {
                         ? `Using existing asset "${assetName}" (ID: ${existing})`
                         : `Asset "${assetName}" was not found; creating it`);
                     uploadedForDeployment = existing
-                        ? await uploadZip(zipPath, existing, chunkSize, cookies)
+                        ? await uploadZip(zipPath, existing, chunkSize, cookies, assetVersion)
                         : await createAsset(zipPath, assetName, assetVersion, chunkSize, cookies);
                 }
                 else {
@@ -318657,7 +318657,7 @@ async function run() {
                         assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
                     }
                     zipPath = await getZipPath(assetName, zipPath, makeZip);
-                    uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies);
+                    uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies, assetVersion);
                 }
             }
             // Deploy after successful upload
@@ -318828,7 +318828,7 @@ async function getZipPath(assetName, zipPath, makeZip) {
  * @returns {Promise<void>} Resolves when the re-upload process is initiated successfully.
  * @throws If the re-upload fails due to errors in the response.
  */
-async function startReupload(zipPath, assetId, chunkSize, cookies) {
+async function startReupload(zipPath, assetId, chunkSize, cookies, version) {
     const stats = (0, fs_1.statSync)(zipPath);
     const totalSize = stats.size;
     const originalFileName = (0, path_1.basename)(zipPath);
@@ -318844,7 +318844,8 @@ async function startReupload(zipPath, assetId, chunkSize, cookies) {
             chunk_size: chunkSize,
             name: originalFileName,
             original_file_name: originalFileName,
-            total_size: totalSize
+            total_size: totalSize,
+            version
         }, {
             headers: {
                 Cookie: cookies
@@ -318872,8 +318873,8 @@ async function startReupload(zipPath, assetId, chunkSize, cookies) {
  * @returns {Promise<void>} Resolves when the upload is complete.
  * @throws If the upload fails at any stage.
  */
-async function uploadZip(zipPath, assetId, chunkSize, cookies) {
-    const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies);
+async function uploadZip(zipPath, assetId, chunkSize, cookies, version) {
+    const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies, version);
     let chunkIndex = 0;
     const stats = (0, fs_1.statSync)(zipPath);
     const totalSize = stats.size;
