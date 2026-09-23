@@ -36,7 +36,7 @@ inputs:
   createIfMissing:
     description: 'Create an asset when its exact name is not found in Portal'
     required: false
-    default: 'false'
+    default: 'true'
   assetVersion:
     description: 'Version for a newly created asset (default: 1.0.0)'
     required: false

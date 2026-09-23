@@ -20,9 +20,11 @@ GitHub Action for automatically uploading FiveM resources to the CFX Portal.
 
 ### 1. Choose an Asset Name
 
-Go to [portal.cfx.re](https://portal.cfx.re) and create an asset for your
-resource, or set `createIfMissing: 'true'` in the action to create it on the
-first run. Note the **asset name** — you'll need it later.
+Go to [portal.cfx.re](https://portal.cfx.re) and choose an **asset name** for
+your resource. If the exact name does not exist, the action creates the asset
+and uploads its first version automatically. Set `createIfMissing: 'false'` if
+you want missing assets to fail instead. Note the **asset name** — you'll need
+it later.
 
 For example, add these inputs to the upload step:
 
@@ -30,7 +32,6 @@ For example, add these inputs to the upload step:
 with:
   cookie: ${{ secrets.FORUM_COOKIE }}
   assetName: sa_garage
-  createIfMissing: 'true'
   assetVersion: '1.0.0'
 ```
 
@@ -263,7 +264,7 @@ are unchanged.
 | `openSource`           | yaml    | No       | Open source version configuration                            |
 | `resourcePath`         | string  | No       | Path to resource folder (for monorepos)                      |
 | `skipUpload`           | boolean | No       | Skip upload, authenticate only                               |
-| `createIfMissing`      | boolean | No       | Create an asset if its exact name is absent (default: false) |
+| `createIfMissing`      | boolean | No       | Create an asset if its exact name is absent (default: true)  |
 | `assetVersion`         | string  | No       | Version when creating an asset (default: 1.0.0)              |
 | `deploy`               | boolean | No       | Enable deploy to server after upload                         |
 | `ssh_host`             | string  | No       | SSH host address for deployment                              |
@@ -332,7 +333,9 @@ jobs:
 
 **"No assets found matching..."**
 
-- Verify the asset name matches exactly (case-sensitive)
+- Missing assets are created automatically by default. If this error occurs,
+  check that `createIfMissing` was not set to `'false'`, and verify that your
+  cookie has permission to create assets.
 
 **"Authentication failed"**
 

@@ -74,7 +74,6 @@ beforeEach(() => {
 })
 
 test('creates a missing asset with the Portal version-scoped upload flow', async () => {
-  inputs.createIfMissing = 'true'
   inputs.assetVersion = '2.0.0'
   inputs.deploy = 'false'
   post.mockImplementation(
@@ -113,6 +112,7 @@ test('invalid chunk size fails without uploading and closes the mocked browser',
 })
 
 test('single ZIP upload passes its returned version identity into deployment', async () => {
+  inputs.createIfMissing = 'false'
   await run()
   expect(preparePuppeteer).toHaveBeenCalled()
   expect(page.goto).toHaveBeenCalledWith(
@@ -138,6 +138,7 @@ test('single ZIP upload passes its returned version identity into deployment', a
 })
 
 test('missing version ID prevents chunk upload and deployment', async () => {
+  inputs.createIfMissing = 'false'
   post.mockResolvedValue({
     data: { asset_id: 7, errors: null }
   })

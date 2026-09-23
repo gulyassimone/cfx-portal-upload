@@ -318437,7 +318437,7 @@ async function run() {
         let zipPath = core.getInput('zipPath');
         const makeZip = core.getInput('makeZip').toLowerCase() === 'true';
         const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true';
-        const createIfMissing = core.getInput('createIfMissing').toLowerCase() === 'true';
+        const createIfMissing = core.getInput('createIfMissing').toLowerCase() !== 'false';
         const assetVersion = core.getInput('assetVersion') || '1.0.0';
         // Version config inputs
         const escrowedInput = core.getInput('escrowed');
