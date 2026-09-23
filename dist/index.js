@@ -318644,6 +318644,9 @@ async function run() {
                 if (assetName && createIfMissing && !assetId) {
                     const existing = await (0, utils_1.findAssetId)(assetName, cookies);
                     zipPath = await getZipPath(assetName, zipPath, makeZip);
+                    core.info(existing
+                        ? `Using existing asset "${assetName}" (ID: ${existing})`
+                        : `Asset "${assetName}" was not found; creating it`);
                     uploadedForDeployment = existing
                         ? await uploadZip(zipPath, existing, chunkSize, cookies)
                         : await createAsset(zipPath, assetName, assetVersion, chunkSize, cookies);
@@ -318835,22 +318838,30 @@ async function startReupload(zipPath, assetId, chunkSize, cookies) {
     core.debug(`Original file name: ${originalFileName}`);
     core.debug(`Chunk size: ${chunkSize}`);
     core.debug(`Chunk count: ${chunkCount}`);
-    const reUploadReponse = await axios_1.default.post((0, utils_1.getUrl)('REUPLOAD', assetId), {
-        chunk_count: chunkCount,
-        chunk_size: chunkSize,
-        name: originalFileName,
-        original_file_name: originalFileName,
-        total_size: totalSize
-    }, {
-        headers: {
-            Cookie: cookies
+    try {
+        const reUploadReponse = await axios_1.default.post((0, utils_1.getUrl)('REUPLOAD', assetId), {
+            chunk_count: chunkCount,
+            chunk_size: chunkSize,
+            name: originalFileName,
+            original_file_name: originalFileName,
+            total_size: totalSize
+        }, {
+            headers: {
+                Cookie: cookies
+            }
+        });
+        if (reUploadReponse.data.errors !== null) {
+            core.debug(JSON.stringify(reUploadReponse.data.errors));
+            throw new Error('Failed to re-upload file. See debug logs for more information.');
         }
-    });
-    if (reUploadReponse.data.errors !== null) {
-        core.debug(JSON.stringify(reUploadReponse.data.errors));
-        throw new Error('Failed to re-upload file. See debug logs for more information.');
+        return (0, upload_version_1.parseUploadedVersion)(reUploadReponse.data, assetId);
     }
-    return (0, upload_version_1.parseUploadedVersion)(reUploadReponse.data, assetId);
+    catch (error) {
+        if (axios_1.default.isAxiosError(error)) {
+            core.error(`CFX re-upload failed (${error.response?.status ?? 'unknown'}): ${JSON.stringify(error.response?.data ?? error.message)}`);
+        }
+        throw error;
+    }
 }
 /**
  * Uploads a zip file in chunks to the specified asset.

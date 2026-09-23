@@ -359,6 +359,11 @@ export async function run(): Promise<void> {
         if (assetName && createIfMissing && !assetId) {
           const existing = await findAssetId(assetName, cookies)
           zipPath = await getZipPath(assetName, zipPath, makeZip)
+          core.info(
+            existing
+              ? `Using existing asset "${assetName}" (ID: ${existing})`
+              : `Asset "${assetName}" was not found; creating it`
+          )
           uploadedForDeployment = existing
             ? await uploadZip(zipPath, existing, chunkSize, cookies)
             : await createAsset(
@@ -617,29 +622,38 @@ async function startReupload(
   core.debug(`Chunk size: ${chunkSize}`)
   core.debug(`Chunk count: ${chunkCount}`)
 
-  const reUploadReponse = await axios.post<ReUploadResponse>(
-    getUrl('REUPLOAD', assetId),
-    {
-      chunk_count: chunkCount,
-      chunk_size: chunkSize,
-      name: originalFileName,
-      original_file_name: originalFileName,
-      total_size: totalSize
-    },
-    {
-      headers: {
-        Cookie: cookies
+  try {
+    const reUploadReponse = await axios.post<ReUploadResponse>(
+      getUrl('REUPLOAD', assetId),
+      {
+        chunk_count: chunkCount,
+        chunk_size: chunkSize,
+        name: originalFileName,
+        original_file_name: originalFileName,
+        total_size: totalSize
+      },
+      {
+        headers: {
+          Cookie: cookies
+        }
       }
-    }
-  )
-
-  if (reUploadReponse.data.errors !== null) {
-    core.debug(JSON.stringify(reUploadReponse.data.errors))
-    throw new Error(
-      'Failed to re-upload file. See debug logs for more information.'
     )
+
+    if (reUploadReponse.data.errors !== null) {
+      core.debug(JSON.stringify(reUploadReponse.data.errors))
+      throw new Error(
+        'Failed to re-upload file. See debug logs for more information.'
+      )
+    }
+    return parseUploadedVersion(reUploadReponse.data, assetId)
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      core.error(
+        `CFX re-upload failed (${error.response?.status ?? 'unknown'}): ${JSON.stringify(error.response?.data ?? error.message)}`
+      )
+    }
+    throw error
   }
-  return parseUploadedVersion(reUploadReponse.data, assetId)
 }
 
 /**
