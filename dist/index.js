@@ -318432,56 +318432,20 @@ async function run() {
             return;
         }
     }
-    await (0, utils_1.preparePuppeteer)();
-    // Try to find system Chrome executable
-    const findChrome = () => {
-        const possiblePaths = [
-            '/usr/bin/google-chrome-stable',
-            '/usr/bin/google-chrome',
-            '/usr/bin/chromium-browser',
-            '/usr/bin/chromium',
-            '/snap/bin/chromium',
-            process.env.CHROME_BIN
-        ].filter(Boolean);
-        for (const path of possiblePaths) {
-            try {
-                const fs = __nccwpck_require__(79896);
-                if (fs.existsSync(path)) {
-                    core.info(`Found Chrome at: ${path}`);
-                    return path;
-                }
-            }
-            catch (e) {
-                // Continue searching
-            }
-        }
-        return undefined;
-    };
-    const chromePath = findChrome();
-    const launchOptions = {
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--no-first-run',
-            '--disable-default-apps',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding'
-        ]
-    };
-    if (chromePath) {
-        launchOptions.executablePath = chromePath;
-        core.info(`Using Chrome executable: ${chromePath}`);
-    }
-    else {
-        core.info('No system Chrome found, trying default Puppeteer behavior');
-    }
-    const browser = await puppeteer_1.default.launch(launchOptions);
-    const page = await browser.newPage();
+    let browser;
     try {
+        const executablePath = await (0, utils_1.preparePuppeteer)();
+        browser = await puppeteer_1.default.launch({
+            executablePath,
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu'
+            ]
+        });
+        const page = await browser.newPage();
         let assetId = core.getInput('assetId');
         let assetName = core.getInput('assetName');
         let zipPath = core.getInput('zipPath');
@@ -318718,7 +318682,7 @@ async function run() {
         }
     }
     finally {
-        await browser.close();
+        await browser?.close();
     }
 }
 /**
@@ -318986,6 +318950,7 @@ exports.createEscrowedVersion = createEscrowedVersion;
 exports.createOpenSourceVersion = createOpenSourceVersion;
 exports.createVersions = createVersions;
 const browsers_1 = __nccwpck_require__(60394);
+const puppeteer_1 = __importDefault(__nccwpck_require__(7280));
 const types_1 = __nccwpck_require__(7715);
 const os_1 = __nccwpck_require__(70857);
 const path_1 = __nccwpck_require__(16928);
@@ -319249,39 +319214,31 @@ async function createResourceVersion(config) {
  * @returns {string} The cache directory.
  */
 function getCacheDirectory() {
-    return (0, path_1.join)((0, os_1.homedir)(), '.cache', 'puppeteer');
+    return (process.env.PUPPETEER_CACHE_DIR || (0, path_1.join)((0, os_1.homedir)(), '.cache', 'puppeteer'));
 }
-/**
- * Prepare the Puppeteer environment by installing the necessary browser.
- * @returns {Promise<void>} Resolves when the environment is prepared.
- */
+/** Install the exact Chrome revision required by Puppeteer and return its path. */
 async function preparePuppeteer() {
-    if (process.env.RUNNER_TEMP === undefined) {
-        core.info('Running locally, skipping Puppeteer setup ...');
-        return;
+    const explicitPath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN;
+    if (explicitPath) {
+        fs_1.default.accessSync(explicitPath, fs_1.default.constants.X_OK);
+        return explicitPath;
     }
-    try {
-        const cacheDirectory = getCacheDirectory();
-        const installed = await (0, browsers_1.getInstalledBrowsers)({
-            cacheDir: cacheDirectory
-        });
-        const chromeInstalled = installed.some(browser => browser.browser === browsers_1.Browser.CHROME);
-        if (!chromeInstalled) {
-            core.info('Installing Chrome via Puppeteer...');
-            await (0, browsers_1.install)({
-                cacheDir: cacheDirectory,
-                browser: browsers_1.Browser.CHROME,
-                buildId: '131.0.6778.204'
-            });
-            core.info('Chrome installation completed');
-        }
-        else {
-            core.info('Chrome already installed');
-        }
+    // Puppeteer 23 exposes this at runtime but omits it from its public types.
+    const buildId = puppeteer_1.default
+        .browserVersion;
+    if (!buildId || !/^\d+\.\d+\.\d+\.\d+$/.test(buildId)) {
+        throw new Error('Cannot determine the Chrome version required by Puppeteer');
     }
-    catch (error) {
-        core.warning(`Chrome installation failed: ${error.message}`);
-    }
+    core.info(`Preparing Puppeteer Chrome ${buildId}`);
+    // install() reuses this exact build if already present in the cache.
+    // Fail immediately on download errors instead of launching a missing browser.
+    const browser = await (0, browsers_1.install)({
+        cacheDir: getCacheDirectory(),
+        browser: browsers_1.Browser.CHROME,
+        buildId
+    });
+    fs_1.default.accessSync(browser.executablePath, fs_1.default.constants.X_OK);
+    return browser.executablePath;
 }
 async function resolveAssetId(name, cookies) {
     core.info(`🔍 Searching for asset: "${name}"`);

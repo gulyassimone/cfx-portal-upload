@@ -1,4 +1,5 @@
-import { Browser, getInstalledBrowsers, install } from '@puppeteer/browsers'
+import { Browser, install } from '@puppeteer/browsers'
+import puppeteer from 'puppeteer'
 import {
   SearchResponse,
   Urls,
@@ -320,43 +321,36 @@ async function createResourceVersion(config: VersionConfig): Promise<string> {
  * @returns {string} The cache directory.
  */
 function getCacheDirectory(): string {
-  return join(homedir(), '.cache', 'puppeteer')
+  return (
+    process.env.PUPPETEER_CACHE_DIR || join(homedir(), '.cache', 'puppeteer')
+  )
 }
 
-/**
- * Prepare the Puppeteer environment by installing the necessary browser.
- * @returns {Promise<void>} Resolves when the environment is prepared.
- */
-export async function preparePuppeteer(): Promise<void> {
-  if (process.env.RUNNER_TEMP === undefined) {
-    core.info('Running locally, skipping Puppeteer setup ...')
-    return
+/** Install the exact Chrome revision required by Puppeteer and return its path. */
+export async function preparePuppeteer(): Promise<string> {
+  const explicitPath =
+    process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN
+  if (explicitPath) {
+    fs.accessSync(explicitPath, fs.constants.X_OK)
+    return explicitPath
   }
 
-  try {
-    const cacheDirectory = getCacheDirectory()
-    const installed = await getInstalledBrowsers({
-      cacheDir: cacheDirectory
-    })
-
-    const chromeInstalled = installed.some(
-      browser => browser.browser === Browser.CHROME
-    )
-
-    if (!chromeInstalled) {
-      core.info('Installing Chrome via Puppeteer...')
-      await install({
-        cacheDir: cacheDirectory,
-        browser: Browser.CHROME,
-        buildId: '131.0.6778.204'
-      })
-      core.info('Chrome installation completed')
-    } else {
-      core.info('Chrome already installed')
-    }
-  } catch (error) {
-    core.warning(`Chrome installation failed: ${(error as Error).message}`)
+  // Puppeteer 23 exposes this at runtime but omits it from its public types.
+  const buildId = (puppeteer as unknown as { browserVersion: string })
+    .browserVersion
+  if (!buildId || !/^\d+\.\d+\.\d+\.\d+$/.test(buildId)) {
+    throw new Error('Cannot determine the Chrome version required by Puppeteer')
   }
+  core.info(`Preparing Puppeteer Chrome ${buildId}`)
+  // install() reuses this exact build if already present in the cache.
+  // Fail immediately on download errors instead of launching a missing browser.
+  const browser = await install({
+    cacheDir: getCacheDirectory(),
+    browser: Browser.CHROME,
+    buildId
+  })
+  fs.accessSync(browser.executablePath, fs.constants.X_OK)
+  return browser.executablePath
 }
 
 export async function resolveAssetId(
