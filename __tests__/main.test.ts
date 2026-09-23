@@ -1,128 +1,124 @@
-/**
- * Unit tests for the action's main functionality, src/main.ts
- *
- * These should be run as if the action was called from a workflow.
- * Specifically, the inputs listed in `action.yml` should be set as environment
- * variables following the pattern `INPUT_<INPUT_NAME>`.
- */
-
 import * as core from '@actions/core'
-import * as main from '../src/main'
+import axios from 'axios'
 import puppeteer from 'puppeteer'
 import { Browser } from 'puppeteer'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { run } from '../src/main'
+import { deployAsset } from '../src/deploy'
+import { preparePuppeteer, resolveAssetId } from '../src/utils'
 
-// Mock the action's main function
-const runMock = jest.spyOn(main, 'run')
+jest.mock('axios')
+jest.mock('../src/deploy', () => ({
+  deployAsset: jest.fn(),
+  rollbackToServer: jest.fn()
+}))
+jest.mock('../src/utils', () => ({
+  ...jest.requireActual<typeof import('../src/utils')>('../src/utils'),
+  preparePuppeteer: jest.fn(),
+  resolveAssetId: jest.fn()
+}))
 
-// Mock the GitHub Actions core library
-let debugMock: jest.SpiedFunction<typeof core.debug>
-let infoMock: jest.SpiedFunction<typeof core.info>
-let getInputMock: jest.SpiedFunction<typeof core.getInput>
+let post: jest.SpiedFunction<typeof axios.post>
+let directory: string
+let inputs: Record<string, string>
+const page = {
+  goto: jest.fn(),
+  evaluate: jest.fn(),
+  url: jest.fn(() => 'https://portal.cfx.re')
+}
+const browser = {
+  newPage: jest.fn().mockResolvedValue(page),
+  close: jest.fn(),
+  setCookie: jest.fn(),
+  cookies: jest.fn().mockResolvedValue([])
+}
 
-describe('action', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
+beforeEach(() => {
+  jest.clearAllMocks()
+  directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cfx-upload-test-'))
+  const zip = path.join(directory, 'resource.zip')
+  fs.writeFileSync(zip, 'zip fixture')
+  inputs = {
+    chunkSize: '1024',
+    maxRetries: '1',
+    cookie: 'test-cookie',
+    assetName: 'sa_garage',
+    zipPath: zip,
+    makeZip: 'false',
+    deploy: 'true',
+    ssh_host: 'example.invalid',
+    ssh_user: 'test',
+    ssh_key: 'test-key'
+  }
+  jest.spyOn(core, 'getInput').mockImplementation(name => inputs[name] || '')
+  jest.spyOn(core, 'info').mockImplementation(() => {})
+  jest.spyOn(core, 'debug').mockImplementation(() => {})
+  jest.spyOn(core, 'setFailed').mockImplementation(() => {})
+  jest
+    .spyOn(puppeteer, 'launch')
+    .mockResolvedValue(browser as unknown as Browser)
+  page.evaluate.mockResolvedValue({ url: 'https://forum.cfx.re/login' })
+  ;(resolveAssetId as jest.Mock).mockResolvedValue('7')
+  post = jest.spyOn(axios, 'post').mockImplementation(
+    async (url: string) =>
+      await Promise.resolve({
+        data: url.endsWith('/re-upload')
+          ? { asset_id: 7, version_id: 102, errors: null }
+          : {}
+      })
+  )
+})
 
-    debugMock = jest.spyOn(core, 'debug').mockImplementation()
-    infoMock = jest.spyOn(core, 'info').mockImplementation()
-    getInputMock = jest.spyOn(core, 'getInput').mockImplementation()
+afterEach(() => {
+  fs.rmSync(directory, { recursive: true, force: true })
+  jest.restoreAllMocks()
+})
+
+test('invalid chunk size fails without uploading and closes the mocked browser', async () => {
+  inputs.chunkSize = 'invalid'
+  await run()
+  expect(core.setFailed).toHaveBeenCalledWith(
+    'Invalid chunk size. Must be a number.'
+  )
+  expect(post).not.toHaveBeenCalled()
+  expect(browser.close).toHaveBeenCalled()
+})
+
+test('single ZIP upload passes its returned version identity into deployment', async () => {
+  await run()
+  expect(preparePuppeteer).toHaveBeenCalled()
+  expect(page.goto).toHaveBeenCalledWith(
+    'https://portal-api.cfx.re/v1/auth/discourse?return=',
+    {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    }
+  )
+  expect(core.setFailed).not.toHaveBeenCalled()
+  expect(post).toHaveBeenCalledWith(
+    expect.stringContaining('/assets/7/complete-upload'),
+    {},
+    expect.any(Object)
+  )
+  expect(deployAsset).toHaveBeenCalledWith(
+    '',
+    'sa_garage',
+    expect.objectContaining({ enabled: true }),
+    { assetId: 7, versionId: 102 }
+  )
+  expect(browser.close).toHaveBeenCalled()
+})
+
+test('missing version ID prevents chunk upload and deployment', async () => {
+  post.mockResolvedValue({
+    data: { asset_id: 7, errors: null }
   })
-
-  it('should fail if chunkSize is not a number', async () => {
-    getInputMock.mockImplementation(name => {
-      switch (name) {
-        case 'chunkSize':
-          return 'invalid'
-        default:
-          return ''
-      }
-    })
-
-    const setFailedMock = jest.spyOn(core, 'setFailed')
-
-    await main.run()
-
-    expect(runMock).toHaveReturned()
-    expect(setFailedMock).toHaveBeenCalledWith(
-      'Invalid chunk size. Must be a number.'
-    )
-  })
-
-  it('should navigate to SSO URL and parse response body', async () => {
-    getInputMock.mockImplementation(name => {
-      switch (name) {
-        case 'chunkSize':
-          return '1024'
-        case 'makeZip':
-          return 'true'
-        case 'maxRetries':
-          return '1'
-        case 'cookie':
-        case 'assetId':
-        case 'assetName':
-        case 'zipPath':
-          return 'test-value'
-        default:
-          return ''
-      }
-    })
-
-    const gotoMock = jest.fn()
-    const evaluateMock = jest
-      .fn()
-      .mockResolvedValue({ url: 'https://forum.cfx.re' })
-    const setCookieMock = jest.fn()
-
-    const newPageMock = jest.fn().mockResolvedValue({
-      goto: gotoMock,
-      evaluate: evaluateMock,
-      url: jest.fn().mockReturnValue('https://portal.cfx.re')
-    })
-    const browserCloseMock = jest.fn()
-
-    jest.spyOn(puppeteer, 'launch').mockResolvedValue({
-      newPage: newPageMock,
-      close: browserCloseMock,
-      setCookie: setCookieMock
-    } as unknown as Browser)
-
-    await main.run()
-
-    expect(infoMock).toHaveBeenCalledWith('Navigating to SSO URL ...')
-
-    expect(gotoMock).toHaveBeenCalledWith(
-      'https://portal-api.cfx.re/v1/auth/discourse?return=',
-      {
-        waitUntil: 'networkidle0'
-      }
-    )
-
-    expect(evaluateMock).toHaveBeenCalledTimes(2)
-
-    expect(infoMock).toHaveBeenCalled()
-    expect(infoMock).toHaveBeenCalledWith('Navigating to SSO URL ...')
-    expect(infoMock).toHaveBeenCalledWith(
-      'Navigated to SSO URL. Parsing response body ...'
-    )
-    expect(debugMock).toHaveBeenCalledWith('Parsed response body.')
-    expect(infoMock).toHaveBeenCalledWith('Redirected to Forum Origin ...')
-    expect(infoMock).toHaveBeenCalledWith('Setting cookies ...')
-    expect(infoMock).toHaveBeenCalledWith('Redirected to Forum Origin ...')
-
-    expect(setCookieMock).toHaveBeenCalledWith({
-      name: '_t',
-      value: 'test-value',
-      domain: 'forum.cfx.re',
-      path: '/',
-      expires: -1,
-      size: 1,
-      httpOnly: true,
-      secure: true,
-      session: false
-    })
-
-    expect(gotoMock).toHaveBeenCalledWith('https://forum.cfx.re')
-
-    expect(browserCloseMock).toHaveBeenCalled()
-  })
+  await run()
+  expect(core.setFailed).toHaveBeenCalledWith(
+    expect.stringContaining('version_id')
+  )
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(deployAsset).not.toHaveBeenCalled()
 })

@@ -185,6 +185,11 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
     deploy_resource_name: 'my-resource'
 ```
 
+Deployment follows the `asset_id` and `version_id` returned by CFX for the current
+upload. It waits up to roughly five minutes for that exact version and its pack;
+missing identities or a timeout fail the action instead of deploying another
+active version.
+
 Each deployment first saves the complete current resource directory outside
 `deploy_path`. The backup identifier contains the UTC timestamp and the GitHub
 ref or commit. Deployment is reported as installed, but not yet verified:

@@ -317921,6 +317921,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.waitForUploadedVersion = waitForUploadedVersion;
 exports.downloadAsset = downloadAsset;
 exports.deployToServer = deployToServer;
 exports.rollbackToServer = rollbackToServer;
@@ -317954,48 +317955,31 @@ async function findAssetByName(cookie, assetName) {
     }
     throw new Error(`Asset "${assetName}" not found on CFX Portal`);
 }
-/**
- * Wait for asset version to become active
- */
-async function waitForActiveVersion(cookie, assetName, maxAttempts = 10, delayMs = 5000) {
-    core.info(`Waiting for asset "${assetName}" to have an active version...`);
+/** Wait only for the version created by this upload, including its pack. */
+async function waitForUploadedVersion(cookie, assetName, uploaded, maxAttempts = 60, delayMs = 5000) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const asset = await findAssetByName(cookie, assetName);
-        if (asset.versions && asset.versions.length > 0) {
-            const activeVersion = asset.versions.find(v => v.state === 'active');
-            if (activeVersion) {
-                core.info(`Found active version: ${activeVersion.id}`);
-                return asset;
-            }
-            // Log current states
-            const states = asset.versions.map(v => v.state).join(', ');
-            core.info(`Attempt ${attempt}/${maxAttempts}: Version states: ${states}`);
+        if (asset.id !== uploaded.assetId) {
+            throw new Error('Portal asset does not match the uploaded asset; deployment is blocked.');
         }
+        const version = asset.versions?.find(v => v.id === uploaded.versionId);
+        if (version?.state === 'active' && version.packs?.length > 0) {
+            core.info(`Uploaded version is ready: ${uploaded.versionId}`);
+            return { asset, version };
+        }
+        core.info(`Waiting for uploaded version ${uploaded.versionId}: ${version?.state || 'not visible'} (${attempt}/${maxAttempts})`);
         if (attempt < maxAttempts) {
-            core.info(`Waiting ${delayMs / 1000}s before retry...`);
             await new Promise(resolve => setTimeout(resolve, delayMs));
         }
     }
-    throw new Error(`Asset "${assetName}" has no active version after ${maxAttempts} attempts. ` +
-        `The version may still be processing. Try again later.`);
+    throw new Error(`Uploaded version ${uploaded.versionId} is not ready; deployment is blocked. No older version will be used.`);
 }
 /**
  * Download asset from CFX Portal
  */
-async function downloadAsset(cookie, assetName) {
+async function downloadAsset(cookie, assetName, uploaded) {
     core.info(`Downloading asset "${assetName}" from CFX Portal...`);
-    // Wait for asset to have an active version (may take time after upload)
-    const asset = await waitForActiveVersion(cookie, assetName);
-    if (!asset.versions || asset.versions.length === 0) {
-        throw new Error(`Asset "${assetName}" has no versions`);
-    }
-    const version = asset.versions.find(v => v.state === 'active');
-    if (!version) {
-        throw new Error(`Asset "${assetName}" has no active versions`);
-    }
-    if (!version.packs || version.packs.length === 0) {
-        throw new Error(`Version ${version.id} has no packs`);
-    }
+    const { asset, version } = await waitForUploadedVersion(cookie, assetName, uploaded);
     const pack = version.packs[0];
     core.info(`Asset ID: ${asset.id}, Version ID: ${version.id}, Pack ID: ${pack.id}`);
     // Download - first get the signed URL from API
@@ -318199,7 +318183,7 @@ async function runRemoteCommand(sshConfig, commands, successMessage) {
 /**
  * Main deploy function - downloads from portal and deploys via SSH
  */
-async function deployAsset(cookie, assetName, deployConfig) {
+async function deployAsset(cookie, assetName, deployConfig, uploaded) {
     if (!deployConfig.enabled || !deployConfig.sshConfig) {
         return;
     }
@@ -318208,7 +318192,7 @@ async function deployAsset(cookie, assetName, deployConfig) {
     core.info('Starting deployment...');
     core.info('='.repeat(50));
     // Download asset from portal (ZIP contains resource folder inside)
-    const zipPath = await downloadAsset(cookie, assetName);
+    const zipPath = await downloadAsset(cookie, assetName, uploaded);
     // Deploy to server - just extract to deploy_path, folder is already in ZIP
     await deployToServer(deployConfig.sshConfig, deployConfig.deployPath, zipPath, deployConfig.resourceName || assetName, deployConfig.backupPath);
     // Cleanup
@@ -318403,6 +318387,7 @@ const axios_1 = __importDefault(__nccwpck_require__(89204));
 const fs_1 = __nccwpck_require__(79896);
 const path_1 = __nccwpck_require__(16928);
 const deploy_1 = __nccwpck_require__(68567);
+const upload_version_1 = __nccwpck_require__(28084);
 const discord_1 = __nccwpck_require__(742);
 const utils_1 = __nccwpck_require__(66087);
 /**
@@ -318575,6 +318560,7 @@ async function run() {
             if (shouldCreateOpenSource)
                 uploadTypes.push('open-source');
             core.info(`🚀 Creating versions: ${uploadTypes.join(', ')}`);
+            let uploadedForDeployment;
             // Check if we should create multiple versions
             if (shouldCreateEscrowed || shouldCreateOpenSource) {
                 core.info('🚀 Using multi-version upload logic');
@@ -318602,7 +318588,7 @@ async function run() {
                         throw new Error('Escrowed config must include asset_id or asset_name');
                     }
                     core.info('Uploading escrowed version ...');
-                    await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies);
+                    uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies);
                 }
                 // Upload open source version
                 if (zipPaths.openSource && shouldCreateOpenSource) {
@@ -318619,7 +318605,8 @@ async function run() {
                         throw new Error('OpenSource config must include asset_id or asset_name');
                     }
                     core.info('Uploading open source version ...');
-                    await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies);
+                    const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies);
+                    uploadedForDeployment ??= uploadedOpenSource;
                 }
             }
             else {
@@ -318632,14 +318619,16 @@ async function run() {
                     assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
                 }
                 zipPath = await getZipPath(assetName, zipPath, makeZip);
-                await uploadZip(zipPath, assetId, chunkSize, cookies);
+                uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies);
             }
             // Deploy after successful upload
             const assetToDeployName = escrowedConfig?.asset_name || openSourceConfig?.asset_name || assetName;
             let deployed = false;
             if (deployConfig.enabled) {
                 if (assetToDeployName) {
-                    await (0, deploy_1.deployAsset)(cookies, assetToDeployName, deployConfig);
+                    if (!uploadedForDeployment)
+                        throw new Error('Missing uploaded version identity; deployment is blocked.');
+                    await (0, deploy_1.deployAsset)(cookies, assetToDeployName, deployConfig, uploadedForDeployment);
                     deployed = true;
                 }
                 else {
@@ -318825,6 +318814,7 @@ async function startReupload(zipPath, assetId, chunkSize, cookies) {
         core.debug(JSON.stringify(reUploadReponse.data.errors));
         throw new Error('Failed to re-upload file. See debug logs for more information.');
     }
+    return (0, upload_version_1.parseUploadedVersion)(reUploadReponse.data, assetId);
 }
 /**
  * Uploads a zip file in chunks to the specified asset.
@@ -318836,7 +318826,7 @@ async function startReupload(zipPath, assetId, chunkSize, cookies) {
  * @throws If the upload fails at any stage.
  */
 async function uploadZip(zipPath, assetId, chunkSize, cookies) {
-    await startReupload(zipPath, assetId, chunkSize, cookies);
+    const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies);
     let chunkIndex = 0;
     const stats = (0, fs_1.statSync)(zipPath);
     const totalSize = stats.size;
@@ -318859,6 +318849,7 @@ async function uploadZip(zipPath, assetId, chunkSize, cookies) {
         chunkIndex++;
     }
     await completeUpload(assetId, cookies);
+    return uploaded;
 }
 /**
  * Completes the upload process.
@@ -318893,6 +318884,33 @@ var Urls;
     Urls["UPLOAD_CHUNK"] = "assets/{id}/upload-chunk";
     Urls["COMPLETE_UPLOAD"] = "assets/{id}/complete-upload";
 })(Urls || (exports.Urls = Urls = {}));
+
+
+/***/ }),
+
+/***/ 28084:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseUploadedVersion = parseUploadedVersion;
+/** Fail closed instead of deploying an unrelated active version. */
+function parseUploadedVersion(response, requestedAssetId) {
+    const data = response;
+    const assetId = data?.asset_id;
+    const versionId = data?.version_id;
+    if (typeof assetId !== 'number' ||
+        !Number.isSafeInteger(assetId) ||
+        assetId <= 0 ||
+        typeof versionId !== 'number' ||
+        !Number.isSafeInteger(versionId) ||
+        versionId <= 0 ||
+        String(assetId) !== requestedAssetId) {
+        throw new Error('CFX re-upload response has missing or mismatched asset_id/version_id; deployment is blocked.');
+    }
+    return { assetId, versionId };
+}
 
 
 /***/ }),
