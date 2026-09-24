@@ -692,6 +692,7 @@ async function uploadZip(
     version
   )
 
+  const versionPath = `assets/${uploaded.assetId}/versions/${uploaded.versionId}`
   let chunkIndex = 0
 
   const stats = statSync(zipPath)
@@ -709,9 +710,9 @@ async function uploadZip(
     })
 
     await logPortalRequest(
-      `POST /assets/${assetId}/upload-chunk (version_id=${uploaded.versionId}, chunk=${chunkIndex + 1}/${chunkCount}, chunk_id=${chunkIndex}, bytes=${(chunk as Buffer).length})`,
+      `POST /${versionPath}/upload-chunk (chunk=${chunkIndex + 1}/${chunkCount}, chunk_id=${chunkIndex}, bytes=${(chunk as Buffer).length})`,
       async () =>
-        axios.post(getUrl('UPLOAD_CHUNK', assetId), form, {
+        axios.post(`${Urls.API}${versionPath}/upload-chunk`, form, {
           headers: {
             ...form.getHeaders(),
             Cookie: cookies
@@ -725,7 +726,7 @@ async function uploadZip(
     chunkIndex++
   }
 
-  await completeUpload(assetId, cookies)
+  await completeUpload(uploaded, cookies)
   return uploaded
 }
 
@@ -805,17 +806,21 @@ async function createAsset(
 }
 
 /**
- * Completes the upload process.
- * @param assetId
+ * Completes the upload for the exact version returned by re-upload.
+ * @param uploaded
  * @param cookies
  * @returns {Promise<void>} Resolves when the upload is complete.
  */
-async function completeUpload(assetId: string, cookies: string): Promise<void> {
+async function completeUpload(
+  uploaded: UploadedVersion,
+  cookies: string
+): Promise<void> {
+  const versionPath = `assets/${uploaded.assetId}/versions/${uploaded.versionId}`
   await logPortalRequest(
-    `POST /assets/${assetId}/complete-upload`,
+    `POST /${versionPath}/complete-upload`,
     async () =>
       axios.post(
-        getUrl('COMPLETE_UPLOAD', assetId),
+        `${Urls.API}${versionPath}/complete-upload`,
         {},
         {
           headers: {

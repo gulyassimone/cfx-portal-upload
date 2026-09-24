@@ -124,7 +124,7 @@ test('single ZIP upload passes its returned version identity into deployment', a
   )
   expect(core.setFailed).not.toHaveBeenCalled()
   expect(post).toHaveBeenCalledWith(
-    expect.stringContaining('/assets/7/complete-upload'),
+    'https://portal-api.cfx.re/v1/assets/7/versions/102/complete-upload',
     {},
     expect.any(Object)
   )
@@ -149,3 +149,25 @@ test('missing version ID prevents chunk upload and deployment', async () => {
   expect(post).toHaveBeenCalledTimes(1)
   expect(deployAsset).not.toHaveBeenCalled()
 })
+
+test.each(['true', 'false'])(
+  're-upload with createIfMissing=%s sends every chunk and completion to the returned version',
+  async createIfMissing => {
+    inputs.createIfMissing = createIfMissing
+    inputs.assetVersion = '1.9.1'
+    inputs.chunkSize = '4'
+    jest.mocked(findAssetId).mockResolvedValue('7')
+    await run()
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(post.mock.calls.map(call => call[0])).toEqual([
+      'https://portal-api.cfx.re/v1/assets/7/re-upload',
+      'https://portal-api.cfx.re/v1/assets/7/versions/102/upload-chunk',
+      'https://portal-api.cfx.re/v1/assets/7/versions/102/upload-chunk',
+      'https://portal-api.cfx.re/v1/assets/7/versions/102/upload-chunk',
+      'https://portal-api.cfx.re/v1/assets/7/versions/102/complete-upload'
+    ])
+    expect(post.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ version: '1.9.1' })
+    )
+  }
+)

@@ -320611,6 +320611,7 @@ async function startReupload(zipPath, assetId, chunkSize, cookies, version) {
  */
 async function uploadZip(zipPath, assetId, chunkSize, cookies, version) {
     const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies, version);
+    const versionPath = `assets/${uploaded.assetId}/versions/${uploaded.versionId}`;
     let chunkIndex = 0;
     const stats = (0, fs_1.statSync)(zipPath);
     const totalSize = stats.size;
@@ -320623,7 +320624,7 @@ async function uploadZip(zipPath, assetId, chunkSize, cookies, version) {
             filename: 'blob',
             contentType: 'application/octet-stream'
         });
-        await (0, portal_log_1.logPortalRequest)(`POST /assets/${assetId}/upload-chunk (version_id=${uploaded.versionId}, chunk=${chunkIndex + 1}/${chunkCount}, chunk_id=${chunkIndex}, bytes=${chunk.length})`, async () => axios_1.default.post((0, utils_1.getUrl)('UPLOAD_CHUNK', assetId), form, {
+        await (0, portal_log_1.logPortalRequest)(`POST /${versionPath}/upload-chunk (chunk=${chunkIndex + 1}/${chunkCount}, chunk_id=${chunkIndex}, bytes=${chunk.length})`, async () => axios_1.default.post(`${types_1.Urls.API}${versionPath}/upload-chunk`, form, {
             headers: {
                 ...form.getHeaders(),
                 Cookie: cookies
@@ -320632,7 +320633,7 @@ async function uploadZip(zipPath, assetId, chunkSize, cookies, version) {
         core.info(`Uploaded chunk ${chunkIndex + 1}/${chunkCount}`);
         chunkIndex++;
     }
-    await completeUpload(assetId, cookies);
+    await completeUpload(uploaded, cookies);
     return uploaded;
 }
 /** Follow the Portal's create flow, which uses version-scoped chunk endpoints. */
@@ -320679,13 +320680,14 @@ async function createAsset(zipPath, assetName, version, chunkSize, cookies) {
     return { assetId, versionId };
 }
 /**
- * Completes the upload process.
- * @param assetId
+ * Completes the upload for the exact version returned by re-upload.
+ * @param uploaded
  * @param cookies
  * @returns {Promise<void>} Resolves when the upload is complete.
  */
-async function completeUpload(assetId, cookies) {
-    await (0, portal_log_1.logPortalRequest)(`POST /assets/${assetId}/complete-upload`, async () => axios_1.default.post((0, utils_1.getUrl)('COMPLETE_UPLOAD', assetId), {}, {
+async function completeUpload(uploaded, cookies) {
+    const versionPath = `assets/${uploaded.assetId}/versions/${uploaded.versionId}`;
+    await (0, portal_log_1.logPortalRequest)(`POST /${versionPath}/complete-upload`, async () => axios_1.default.post(`${types_1.Urls.API}${versionPath}/complete-upload`, {}, {
         headers: {
             Cookie: cookies
         }
