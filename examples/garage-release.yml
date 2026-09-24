@@ -1,0 +1,46 @@
+# Copy to sa_garage/.github/workflows/release.yml. Leave ci.yml unchanged.
+name: Garage release and deploy
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      assetName:
+        description: Cfx Portal asset name
+        required: true
+        default: sa_garage
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garage-production
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  checks:
+    name: Required checks
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Package, upload and deploy
+    needs: checks
+    uses: gulyassimone/cfx-portal-upload/.github/workflows/resource-release.yml@latest
+    with:
+      resource-name: sa_garage
+      asset-name: ${{ inputs.assetName || vars.CFX_ASSET_NAME || 'sa_garage' }}
+      runners: '["self-hosted", "linux", "x64"]'
+      node-version-file: .nvmrc
+      web-artifact-name: sa-garage-web-${{ github.sha }}
+      web-build-path: web/build
+      package-mode: runtime
+      deploy-branch: master
+      backup-path: '~/.cfx-portal-upload/backups'
+    secrets:
+      FORUM_COOKIE: ${{ secrets.FORUM_COOKIE }}
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

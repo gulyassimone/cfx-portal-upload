@@ -1,223 +1,280 @@
-name: Reusable FiveM resource release
+name: Resource release and deploy
 
 on:
   workflow_call:
     inputs:
       resource-name:
-        description: Resource directory and manifest root name
-        required: true
         type: string
+        required: true
       asset-name:
-        description: CFX Portal asset name
-        required: true
-        type: string
-      runners:
-        description: JSON array of GitHub runner labels
-        required: false
-        type: string
-        default: '["ubuntu-latest"]'
-      node-version-file:
-        description: Optional Node version file
-        required: false
         type: string
         default: ''
+      runners:
+        description: JSON runner label array
+        type: string
+        default: '["ubuntu-latest"]'
+      node-version:
+        type: string
+        default: '22'
+      node-version-file:
+        description: Overrides node-version when provided
+        type: string
+        default: ''
+      manifest-path:
+        type: string
+        default: fxmanifest.lua
+      version-mode:
+        type: string
+        default: run
       web-artifact-name:
         description:
-          CI artifact containing the built web files; leave empty when there is
-          no web build
-        required: false
+          Artifact from the caller CI in this same workflow run; empty for no
+          web
         type: string
         default: ''
       web-build-path:
-        description: Directory where the web artifact should be restored
-        required: false
+        description:
+          Relative to the resource root; must be set together with
+          web-artifact-name
         type: string
         default: ''
+      package-mode:
+        description: auto, runtime (manifest-based) or custom (project command)
+        type: string
+        default: auto
       package-command:
-        description: Shell command that creates the release ZIP
-        required: false
+        description:
+          Required only for custom mode; must consume the existing CI build
         type: string
         default: ''
       package-zip:
-        description: Path to the release ZIP produced by package-command
-        required: false
+        description: Workspace-relative ZIP produced by custom package-command
         type: string
         default: ''
       deploy-enabled:
-        description: Whether to upload and deploy on the deploy branch
-        required: false
+        description:
+          Enable CFX upload and deployment; false only publishes artifacts
         type: boolean
         default: true
       deploy-branch:
-        description: Branch allowed to deploy
-        required: true
         type: string
+        default: master
+      deploy:
+        type: boolean
+        default: true
+      ssh-port:
+        type: string
+        default: '22'
       backup-path:
-        description: Remote backup directory
-        required: false
         type: string
-        default: ~/.cfx-portal-upload/backups
+        default: '~/.cfx-portal-upload/backups'
     secrets:
       FORUM_COOKIE:
-        required: true
+        required: false
       SERVER_HOST:
-        required: true
+        required: false
       SERVER_USER:
-        required: true
+        required: false
       SSH_KEY:
-        required: true
+        required: false
       DEPLOY_PATH:
-        required: true
+        required: false
 
 permissions:
   contents: read
 
-concurrency:
-  group: resource-release-${{ inputs['resource-name'] }}
-  cancel-in-progress: false
-
 jobs:
   package:
-    name: Package ${{ inputs['resource-name'] }}
+    name: Package verified resource
+    # This workflow runs trusted project commands; do not run it for pull requests.
+    if:
+      github.event_name != 'pull_request' && github.event_name !=
+      'pull_request_target'
     runs-on: ${{ fromJSON(inputs.runners) }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     outputs:
-      artifact-name:
-        ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{
-        github.run_attempt }}
-      asset-version: ${{ steps.zip-version.outputs.version }}
-      zip-name: ${{ steps.zip-version.outputs.zip-name }}
+      artifact-name: ${{ steps.artifact-name.outputs.name }}
+      version: ${{ steps.collect.outputs.version }}
+      sha256: ${{ steps.collect.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Node
-        if: inputs['node-version-file'] != ''
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version-file: ${{ inputs['node-version-file'] }}
-      - name: Restore CI web build
-        if: inputs['web-artifact-name'] != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs['web-artifact-name'] }}
-          path: ${{ inputs['web-build-path'] }}
-      - name: Set automatic release version
-        shell: python3 {0}
+          node-version:
+            ${{ inputs.node-version-file == '' && inputs.node-version || '' }}
+          node-version-file: ${{ inputs.node-version-file }}
+      - name: Validate packaging inputs
+        id: packaging-inputs
+        shell: bash
         env:
-          RESOURCE_NAME: ${{ inputs['resource-name'] }}
+          PACKAGE_MODE: ${{ inputs.package-mode }}
+          PACKAGE_COMMAND: ${{ inputs.package-command }}
+          PACKAGE_ZIP: ${{ inputs.package-zip }}
+          WEB_ARTIFACT: ${{ inputs.web-artifact-name }}
+          WEB_PATH: ${{ inputs.web-build-path }}
         run: |
-          import os
-          import re
-          from pathlib import Path
-
-          manifest_path = Path('fxmanifest.lua')
-          manifest = manifest_path.read_text(encoding='utf-8')
-          pattern = r"^version\s+['\"]([0-9]+)\.[0-9]+\.[0-9]+['\"]\s*$"
-          matches = re.findall(pattern, manifest, re.MULTILINE)
-          if len(matches) > 1:
-              raise SystemExit('Expected at most one semantic version in fxmanifest.lua')
-          run_number = int(os.environ['GITHUB_RUN_NUMBER'])
-          attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
-          if run_number < 1 or attempt < 1:
-              raise SystemExit('Release run number and attempt must be positive')
-          version = f'{matches[0] if matches else 1}.{run_number}.{attempt}'
-          updated = re.sub(pattern, f"version '{version}'", manifest, flags=re.MULTILINE) if matches else manifest.rstrip() + f"\nversion '{version}'\n"
-          manifest_path.write_text(updated, encoding='utf-8')
-          print(f'Packaging {os.environ["RESOURCE_NAME"]} version {version}')
-      - name: Package custom release
-        if: inputs['package-command'] != ''
+          if [ "$PACKAGE_MODE" = auto ]; then
+            if [ -n "$PACKAGE_COMMAND" ]; then PACKAGE_MODE=custom; else PACKAGE_MODE=runtime; fi
+          fi
+          if [ "$PACKAGE_MODE" != runtime ] && [ "$PACKAGE_MODE" != custom ]; then
+            echo 'package-mode must be auto, runtime or custom.' >&2
+            exit 1
+          fi
+          if [ "$PACKAGE_MODE" = custom ] && { [ -z "$PACKAGE_COMMAND" ] || [ -z "$PACKAGE_ZIP" ]; }; then
+            echo 'custom mode requires package-command and package-zip.' >&2
+            exit 1
+          fi
+          if [ "$PACKAGE_MODE" = runtime ] && { [ -n "$PACKAGE_COMMAND" ] || [ -n "$PACKAGE_ZIP" ]; }; then
+            echo 'Use package-mode: custom when supplying package-command or package-zip.' >&2
+            exit 1
+          fi
+          if { [ -z "$WEB_ARTIFACT" ] && [ -n "$WEB_PATH" ]; } || { [ -n "$WEB_ARTIFACT" ] && [ -z "$WEB_PATH" ]; }; then
+            echo 'Set both web-artifact-name and web-build-path, or leave both empty.' >&2
+            exit 1
+          fi
+          echo "mode=$PACKAGE_MODE" >> "$GITHUB_OUTPUT"
+      - name: Resolve web artifact destination
+        id: web-destination
+        if: inputs.web-artifact-name != ''
+        shell: bash
         env:
-          PACKAGE_COMMAND: ${{ inputs['package-command'] }}
-        run: bash -euo pipefail -c "$PACKAGE_COMMAND"
-      - name: Package resource files
-        if: inputs['package-command'] == ''
-        uses: gulyassimone/cfx-portal-upload@latest
-        with:
-          assetName: ${{ inputs['resource-name'] }}
-          packageOnly: 'true'
-          packageMode: runtime
-      - name: Read version from the packaged manifest
-        id: zip-version
-        shell: python3 {0}
-        env:
-          PACKAGE_ZIP:
-            ${{ inputs['package-zip'] || format('{0}.zip',
-            inputs['resource-name']) }}
-          RESOURCE_NAME: ${{ inputs['resource-name'] }}
+          MANIFEST_PATH: ${{ inputs.manifest-path }}
+          WEB_PATH: ${{ inputs.web-build-path }}
         run: |
-          import os
-          import re
-          import zipfile
-          from pathlib import Path
-
-          zip_path = Path(os.environ['PACKAGE_ZIP'])
-          manifest_path = f"{os.environ['RESOURCE_NAME']}/fxmanifest.lua"
-          with zipfile.ZipFile(zip_path) as archive:
-              manifest = archive.read(manifest_path).decode('utf-8')
-          versions = re.findall(r"^version\s+['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]\s*$", manifest, re.MULTILINE)
-          if len(versions) != 1:
-              raise SystemExit('Expected exactly one semantic version in the packaged fxmanifest.lua')
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'version={versions[0]}\n')
-              output.write(f'zip-name={zip_path.name}\n')
-      - name: Write release inventory
-        shell: python3 {0}
-        env:
-          PACKAGE_ZIP:
-            ${{ inputs['package-zip'] || format('{0}.zip',
-            inputs['resource-name']) }}
-        run: |
-          import hashlib
-          import os
-          import zipfile
-          from pathlib import Path
-
-          zip_path = Path(os.environ['PACKAGE_ZIP'])
-          output = Path('dist')
-          output.mkdir(exist_ok=True)
-          digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
-          (output / 'SHA256SUMS').write_text(f'{digest}  {zip_path.name}\n', encoding='utf-8')
-          with zipfile.ZipFile(zip_path) as archive:
-              (output / 'contents.txt').write_text('\n'.join(archive.namelist()) + '\n', encoding='utf-8')
-      - name: Save release artifact
-        uses: actions/upload-artifact@v4
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          for (const value of [process.env.MANIFEST_PATH, process.env.WEB_PATH]) {
+            if (!value || /[\\:\r\n\0]/.test(value) || value.split('/').some(p => !p || p === '.' || p === '..')) {
+              throw new Error('Manifest and web paths must be safe relative paths');
+            }
+          }
+          const destination = path.join(path.dirname(process.env.MANIFEST_PATH), process.env.WEB_PATH);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `path=${destination}\n`);
+          NODE
+      - uses: actions/download-artifact@v4
+        if: inputs.web-artifact-name != ''
         with:
-          name:
-            ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{
-            github.run_attempt }}
-          path: |
-            ${{ inputs['package-zip'] || format('{0}.zip', inputs['resource-name']) }}
-            dist/${{ inputs['resource-name'] }}-release.metadata.json
-            dist/SHA256SUMS
-            dist/contents.txt
+          name: ${{ inputs.web-artifact-name }}
+          path: ${{ steps.web-destination.outputs.path }}
+      - name: Set release version and verify existing web files
+        id: prepare
+        uses: $/package
+        with:
+          operation: prepare
+          resource-name: ${{ inputs.resource-name }}
+          manifest-path: ${{ inputs.manifest-path }}
+          version-mode: ${{ inputs.version-mode }}
+          web-build-path: ${{ inputs.web-build-path }}
+      - name: Run project packager
+        if: steps.packaging-inputs.outputs.mode == 'custom'
+        shell: bash
+        env:
+          PACKAGE_COMMAND: ${{ inputs.package-command }}
+        run: bash --noprofile --norc -e -o pipefail -c "$PACKAGE_COMMAND"
+      - name: Package runtime files or verify custom ZIP
+        id: collect
+        uses: $/package
+        with:
+          operation:
+            ${{ steps.packaging-inputs.outputs.mode == 'runtime' && 'package' ||
+            'collect' }}
+          manifest-path: ${{ inputs.manifest-path }}
+          resource-name: ${{ inputs.resource-name }}
+          zip-path: ${{ inputs.package-zip }}
+          expected-version: ${{ steps.prepare.outputs.version }}
+          web-build-path: ${{ inputs.web-build-path }}
+      - name: Name this release artifact
+        id: artifact-name
+        shell: bash
+        env:
+          RESOURCE_NAME: ${{ inputs.resource-name }}
+        run:
+          echo
+          "name=${RESOURCE_NAME}-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: ${{ steps.collect.outputs.artifact-directory }}
           if-no-files-found: error
           retention-days: 14
+      - name: Remove temporary artifact staging
+        if: always()
+        shell: bash
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.collect.outputs.artifact-directory }}
+        run: |
+          if [ -n "$PACKAGE_DIRECTORY" ]; then
+            rm -rf -- "$PACKAGE_DIRECTORY"
+          fi
 
-  deploy:
-    name: Upload and deploy ${{ inputs['resource-name'] }}
+  cfx:
+    name: CFX upload and deploy
     needs: package
-    if: (inputs['deploy-enabled'] || vars.ENABLE_CFX_DEPLOY == 'true') && github.ref_name == inputs['deploy-branch']
+    if:
+      (inputs['deploy-enabled'] || vars.ENABLE_CFX_DEPLOY == 'true') &&
+      github.ref_name == inputs['deploy-branch']
     runs-on: ${{ fromJSON(inputs.runners) }}
     timeout-minutes: 30
     steps:
+      - name: Validate Portal authentication
+        shell: bash
+        env:
+          FORUM_COOKIE: ${{ secrets.FORUM_COOKIE }}
+        run: |
+          if [ -z "$FORUM_COOKIE" ]; then
+            echo 'Missing required upload secret: FORUM_COOKIE' >&2
+            exit 1
+          fi
+      - name: Validate deployment configuration
+        if: inputs.deploy
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          for name in SERVER_HOST SERVER_USER SSH_KEY DEPLOY_PATH; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required deploy secret: $name" >&2
+              exit 1
+            fi
+          done
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.package.outputs.artifact-name }}
-          path: dist/
-      - name: Upload to CFX Portal and deploy
-        uses: gulyassimone/cfx-portal-upload@latest
+          path: cfx-release/${{ github.run_id }}-${{ github.run_attempt }}/
+      - name: Verify downloaded ZIP identity and read version
+        id: inspect
+        uses: $/package
+        with:
+          operation: inspect
+          resource-name: ${{ inputs.resource-name }}
+          zip-path:
+            cfx-release/${{ github.run_id }}-${{ github.run_attempt }}/${{
+            inputs.resource-name }}-release.zip
+          expected-version: ${{ needs.package.outputs.version }}
+          expected-sha256: ${{ needs.package.outputs.sha256 }}
+          web-build-path: ${{ inputs.web-build-path }}
+      - name: Upload and deploy verified ZIP
+        uses: $/
         with:
           cookie: ${{ secrets.FORUM_COOKIE }}
-          assetName: ${{ inputs['asset-name'] }}
-          assetVersion: ${{ needs.package.outputs.asset-version }}
+          assetName: ${{ inputs.asset-name || inputs.resource-name }}
+          assetVersion: ${{ steps.inspect.outputs.version }}
           makeZip: 'false'
-          zipPath: ./dist/${{ needs.package.outputs.zip-name }}
-          deploy: 'true'
+          zipPath:
+            ./cfx-release/${{ github.run_id }}-${{ github.run_attempt }}/${{
+            inputs.resource-name }}-release.zip
+          deploy: ${{ inputs.deploy }}
           ssh_host: ${{ secrets.SERVER_HOST }}
           ssh_user: ${{ secrets.SERVER_USER }}
           ssh_key: ${{ secrets.SSH_KEY }}
-          ssh_port: '22'
-          deploy_resource_name: ${{ inputs['resource-name'] }}
-          deploy_backup_path: ${{ inputs['backup-path'] }}
+          ssh_port: ${{ inputs.ssh-port }}
+          deploy_resource_name: ${{ inputs.resource-name }}
+          deploy_backup_path: ${{ inputs.backup-path }}
           deploy_path: ${{ secrets.DEPLOY_PATH }}

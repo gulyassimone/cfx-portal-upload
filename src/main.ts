@@ -20,7 +20,6 @@ import { deployAsset, rollbackToServer } from './deploy'
 import { parseUploadedVersion } from './upload-version'
 import { sendDiscordNotification } from './discord'
 import {
-  deleteIfExists,
   resolveAssetId,
   findAssetId,
   getEnv,
@@ -58,7 +57,7 @@ export async function run(): Promise<void> {
       const sshUser = core.getInput('ssh_user')
       const sshKey = core.getInput('ssh_key')
       const sshPort = parseInt(core.getInput('ssh_port') || '22')
-      const { deployPath, backupPath } = getDeployPaths()
+      const { deployPath, backupPath } = getDeployPaths(true)
       const resourceName = core.getInput('deploy_resource_name')
       const backupId = core.getInput('rollback_backup')
 
@@ -122,7 +121,9 @@ export async function run(): Promise<void> {
     const sshUser = core.getInput('ssh_user')
     const sshKey = core.getInput('ssh_key')
     const sshPort = parseInt(core.getInput('ssh_port') || '22')
-    const { deployPath, backupPath } = getDeployPaths()
+    const { deployPath, backupPath } = getDeployPaths(
+      deployEnabled && !skipUpload
+    )
     const deployResourceName = core.getInput('deploy_resource_name')
     const discordWebhook = core.getInput('discord_webhook')
 
@@ -610,13 +611,6 @@ async function getZipPath(
   }
 
   core.info('Creating zip file ...')
-
-  // The runtime packer needs the Git index to select tracked files.
-  if (packageMode === 'all') {
-    deleteIfExists('.git/')
-    deleteIfExists('.github/')
-    deleteIfExists('.vscode/')
-  }
 
   return zipAsset(assetName, packageMode)
 }

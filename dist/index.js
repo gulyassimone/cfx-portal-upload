@@ -32575,7 +32575,7 @@ exports.isDirectorySync = isDirectorySync;
 "use strict";
 
 
-const binding = __nccwpck_require__(87318);
+const binding = __nccwpck_require__(65243);
 
 module.exports = binding.getCPUInfo;
 
@@ -78564,7 +78564,7 @@ let AESGCMDecipher;
 let ChaChaPolyDecipher;
 let GenericDecipher;
 try {
-  binding = __nccwpck_require__(30490);
+  binding = __nccwpck_require__(68440);
   ({ AESGCMCipher, ChaChaPolyCipher, GenericCipher,
      AESGCMDecipher, ChaChaPolyDecipher, GenericDecipher } = binding);
 } catch {}
@@ -319660,10 +319660,14 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getDeployPaths = getDeployPaths;
 const core = __importStar(__nccwpck_require__(37484));
-/** Shared by deployment and rollback; keep path defaults in one place. */
-function getDeployPaths() {
+/** Shared path configuration for deployment and rollback. */
+function getDeployPaths(required) {
+    const deployPath = core.getInput('deploy_path').trim();
+    if (required && !deployPath) {
+        throw new Error('deploy_path is required for deployment or rollback.');
+    }
     return {
-        deployPath: core.getInput('deploy_path') || '/sftp/deploy/resources',
+        deployPath,
         backupPath: core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups'
     };
 }
@@ -320211,7 +320215,7 @@ async function run() {
             const sshUser = core.getInput('ssh_user');
             const sshKey = core.getInput('ssh_key');
             const sshPort = parseInt(core.getInput('ssh_port') || '22');
-            const { deployPath, backupPath } = (0, deploy_config_1.getDeployPaths)();
+            const { deployPath, backupPath } = (0, deploy_config_1.getDeployPaths)(true);
             const resourceName = core.getInput('deploy_resource_name');
             const backupId = core.getInput('rollback_backup');
             if (!sshHost || !sshUser || !sshKey || !resourceName || !backupId) {
@@ -320259,7 +320263,7 @@ async function run() {
         const sshUser = core.getInput('ssh_user');
         const sshKey = core.getInput('ssh_key');
         const sshPort = parseInt(core.getInput('ssh_port') || '22');
-        const { deployPath, backupPath } = (0, deploy_config_1.getDeployPaths)();
+        const { deployPath, backupPath } = (0, deploy_config_1.getDeployPaths)(deployEnabled && !skipUpload);
         const deployResourceName = core.getInput('deploy_resource_name');
         const discordWebhook = core.getInput('discord_webhook');
         const deployConfig = {
@@ -320620,12 +320624,6 @@ async function getZipPath(assetName, zipPath, makeZip, packageMode) {
         throw new Error('Either zipPath or makeZip must be provided to upload a file.');
     }
     core.info('Creating zip file ...');
-    // The runtime packer needs the Git index to select tracked files.
-    if (packageMode === 'all') {
-        (0, utils_1.deleteIfExists)('.git/');
-        (0, utils_1.deleteIfExists)('.github/');
-        (0, utils_1.deleteIfExists)('.vscode/');
-    }
     return (0, utils_1.zipAsset)(assetName, packageMode);
 }
 /**
@@ -320760,6 +320758,119 @@ async function completeUpload(uploaded, cookies) {
         }
     }), [cookies]);
     core.info('Upload completed.');
+}
+
+
+/***/ }),
+
+/***/ 2501:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.writeResourceZip = writeResourceZip;
+const fs_1 = __importDefault(__nccwpck_require__(79896));
+const path_1 = __importDefault(__nccwpck_require__(16928));
+const promises_1 = __nccwpck_require__(49786);
+const yazl_1 = __importDefault(__nccwpck_require__(93044));
+const paths_1 = __nccwpck_require__(86211);
+/** ZIP writer only: callers own the policy selecting runtime files. */
+async function writeResourceZip(sourceDir, destination, resourceName, files = (0, paths_1.listFiles)(sourceDir)) {
+    (0, paths_1.validateResourceName)(resourceName);
+    const output = path_1.default.resolve(destination);
+    const selected = [...new Set(files)].sort().map(relative => ({
+        relative,
+        absolute: (0, paths_1.sourceFile)(sourceDir, relative)
+    }));
+    if (selected.some(file => file.absolute === output)) {
+        throw new Error('Output ZIP must not be one of the input files');
+    }
+    fs_1.default.mkdirSync(path_1.default.dirname(output), { recursive: true });
+    const zip = new yazl_1.default.ZipFile();
+    for (const file of selected) {
+        zip.addFile(file.absolute, `${resourceName}/${file.relative}`, {
+            compress: true
+        });
+    }
+    const finished = (0, promises_1.pipeline)(zip.outputStream, fs_1.default.createWriteStream(output));
+    zip.on('error', (error) => zip.outputStream.destroy(error));
+    zip.end();
+    await finished;
+    return output;
+}
+
+
+/***/ }),
+
+/***/ 86211:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.validateResourceName = validateResourceName;
+exports.validateRelativePath = validateRelativePath;
+exports.sourceFile = sourceFile;
+exports.listFiles = listFiles;
+const fs_1 = __importDefault(__nccwpck_require__(79896));
+const path_1 = __importDefault(__nccwpck_require__(16928));
+function validateResourceName(name) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
+        throw new Error('resource-name must contain only letters, digits, _ and -');
+    }
+}
+function validateRelativePath(name) {
+    if (!name ||
+        name.includes('\\') ||
+        name.includes(':') ||
+        /[\r\n\0]/.test(name) ||
+        name.split('/').some(part => !part || part === '.' || part === '..')) {
+        throw new Error(`Invalid relative path: ${name}`);
+    }
+}
+/** Resolve existing files without following symlinks, including parent directories. */
+function sourceFile(root, relative) {
+    validateRelativePath(relative);
+    let current = path_1.default.resolve(root);
+    for (const part of relative.split('/')) {
+        current = path_1.default.join(current, part);
+        if (fs_1.default.lstatSync(current).isSymbolicLink())
+            throw new Error(`Symlink rejected: ${relative}`);
+    }
+    if (!fs_1.default.statSync(current).isFile())
+        throw new Error(`Not a file: ${relative}`);
+    return current;
+}
+function listFiles(root, excluded = []) {
+    const files = [];
+    function visit(relative) {
+        for (const entry of fs_1.default.readdirSync(path_1.default.join(root, relative), {
+            withFileTypes: true
+        })) {
+            const name = relative ? `${relative}/${entry.name}` : entry.name;
+            if (excluded.some(item => name === item ||
+                name.startsWith(`${item}/`) ||
+                (!item.includes('/') && entry.name === item)))
+                continue;
+            if (entry.isSymbolicLink())
+                throw new Error(`Symlink rejected: ${name}`);
+            if (entry.isDirectory())
+                visit(name);
+            else if (entry.isFile())
+                files.push(name);
+            else
+                throw new Error(`Unsupported file: ${name}`);
+        }
+    }
+    visit('');
+    return files.sort();
 }
 
 
@@ -321143,8 +321254,9 @@ const core = __importStar(__nccwpck_require__(37484));
 const axios_1 = __importDefault(__nccwpck_require__(87269));
 const fs_1 = __importDefault(__nccwpck_require__(79896));
 const path_2 = __importDefault(__nccwpck_require__(16928));
-const yazl_1 = __importDefault(__nccwpck_require__(93044));
 const runtime_package_1 = __nccwpck_require__(47618);
+const archive_1 = __nccwpck_require__(2501);
+const paths_1 = __nccwpck_require__(86211);
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -321486,19 +321598,6 @@ function getUrl(type, id) {
     const url = types_1.Urls.API + types_1.Urls[type];
     return id ? url.replace('{id}', id) : url;
 }
-function buildTree(currentPath) {
-    const stats = fs_1.default.statSync(currentPath);
-    if (stats.isFile()) {
-        return path_2.default.basename(currentPath);
-    }
-    if (stats.isDirectory()) {
-        const children = fs_1.default.readdirSync(currentPath);
-        return {
-            [path_2.default.basename(currentPath)]: children.map((child) => buildTree(path_2.default.join(currentPath, child)))
-        };
-    }
-    return null;
-}
 function getEnv(name) {
     if (process.env[name] === undefined) {
         throw new Error(`Environment variable ${name} is not set.`);
@@ -321510,39 +321609,7 @@ async function zipAsset(assetName, packageMode = 'all') {
         return (0, runtime_package_1.zipRuntimeAsset)(assetName, getEnv('GITHUB_WORKSPACE'));
     if (packageMode !== 'all')
         throw new Error(`Invalid packageMode: ${packageMode}`);
-    core.debug('Zipping asset...');
-    const workspacePath = getEnv('GITHUB_WORKSPACE');
-    const outputZipPath = assetName + '.zip';
-    const zipfile = new yazl_1.default.ZipFile();
-    function addDirectoryToZip(dir, zipPath) {
-        const entries = fs_1.default.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-            const fullPath = path_2.default.join(dir, entry.name);
-            const entryZipPath = path_2.default.join(zipPath, entry.name);
-            if (entry.isDirectory()) {
-                core.debug(`Entering directory ${fullPath}...`);
-                addDirectoryToZip(fullPath, entryZipPath);
-            }
-            else if (entry.isFile()) {
-                core.debug(`Adding file ${fullPath} as ${entryZipPath}...`);
-                zipfile.addFile(fullPath, entryZipPath, { compress: true });
-            }
-        }
-    }
-    core.debug('Adding files to zip...');
-    addDirectoryToZip(workspacePath, assetName);
-    core.debug('Zip content: ' + JSON.stringify(buildTree(workspacePath), null, 2));
-    zipfile.end();
-    const outputStream = fs_1.default.createWriteStream(outputZipPath);
-    return new Promise((resolve, reject) => {
-        zipfile.outputStream
-            .pipe(outputStream)
-            .on('close', () => {
-            console.log(`Asset zipped to ${outputZipPath}`);
-            resolve(path_2.default.resolve(outputZipPath));
-        })
-            .on('error', reject);
-    });
+    return await (0, archive_1.writeResourceZip)(getEnv('GITHUB_WORKSPACE'), `${assetName}.zip`, assetName, (0, paths_1.listFiles)(getEnv('GITHUB_WORKSPACE'), EXCLUDE_DIRS));
 }
 function deleteIfExists(_path) {
     _path = path_2.default.join(getEnv('GITHUB_WORKSPACE'), _path);
@@ -321680,47 +321747,8 @@ async function createOpenSourceVersion(_assetName, resourcePath) {
  * @param excludePaths Paths to exclude from the zip
  * @returns Promise resolving to the absolute path of the created zip file
  */
-async function zipDirectory(sourceDir, zipPath, _rootFolderName, excludePaths = []) {
-    const zipfile = new yazl_1.default.ZipFile();
-    const outputZipPath = path_2.default.resolve(zipPath);
-    // Normalize exclude paths for comparison
-    const normalizedExcludes = excludePaths.map(p => path_2.default.normalize(p));
-    function addDirectoryToZip(dir, zipPath) {
-        const entries = fs_1.default.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-            const fullPath = path_2.default.join(dir, entry.name);
-            const relativePath = path_2.default.relative(sourceDir, fullPath);
-            // Check if this path should be excluded
-            const shouldExclude = normalizedExcludes.some(exclude => {
-                const normalized = path_2.default.normalize(relativePath);
-                return (normalized === exclude || normalized.startsWith(exclude + path_2.default.sep));
-            });
-            if (shouldExclude) {
-                core.debug(`Excluding from ZIP: ${relativePath}`);
-                continue;
-            }
-            const entryZipPath = path_2.default.join(zipPath, entry.name);
-            if (entry.isDirectory()) {
-                addDirectoryToZip(fullPath, entryZipPath);
-            }
-            else if (entry.isFile()) {
-                zipfile.addFile(fullPath, entryZipPath, { compress: true });
-            }
-        }
-    }
-    // Add files inside root folder with the resource name
-    addDirectoryToZip(sourceDir, _rootFolderName);
-    zipfile.end();
-    const outputStream = fs_1.default.createWriteStream(outputZipPath);
-    return new Promise((resolve, reject) => {
-        zipfile.outputStream
-            .pipe(outputStream)
-            .on('close', () => {
-            core.info(`Directory zipped to ${outputZipPath}`);
-            resolve(outputZipPath);
-        })
-            .on('error', reject);
-    });
+async function zipDirectory(sourceDir, zipPath, rootFolderName, excludePaths = []) {
+    return await (0, archive_1.writeResourceZip)(sourceDir, zipPath, rootFolderName, (0, paths_1.listFiles)(sourceDir, excludePaths));
 }
 /**
  * Creates both escrowed and open source versions based on options
@@ -321746,19 +321774,17 @@ async function createVersions(options, assetName) {
 
 /***/ }),
 
-/***/ 87318:
-/***/ ((module) => {
+/***/ 65243:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
-module.exports = eval("require")("../build/Release/cpufeatures.node");
-
+module.exports = require(__nccwpck_require__.ab + "build/Release/cpufeatures.node")
 
 /***/ }),
 
-/***/ 30490:
-/***/ ((module) => {
+/***/ 68440:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
-module.exports = eval("require")("./crypto/build/Release/sshcrypto.node");
-
+module.exports = require(__nccwpck_require__.ab + "lib/protocol/crypto/build/Release/sshcrypto.node")
 
 /***/ }),
 
@@ -322063,6 +322089,14 @@ module.exports = require("readline");
 
 "use strict";
 module.exports = require("stream");
+
+/***/ }),
+
+/***/ 49786:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("stream/promises");
 
 /***/ }),
 

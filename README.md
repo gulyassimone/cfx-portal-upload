@@ -16,6 +16,13 @@ GitHub Action for automatically uploading FiveM resources to the CFX Portal.
 
 <br>
 
+## Shared resource releases
+
+For a CI-gated release that packages manifest-referenced runtime files and reuses the CI web build,
+see [Shared resource release](docs/resource-release.md) and the
+[garage release caller](examples/garage-release.yml). Existing `ci.yml` files
+remain unchanged. Web-less resources can omit the web artifact inputs.
+
 ## Quick Start
 
 ### 1. Choose an Asset Name
@@ -184,10 +191,10 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
     deploy_path: ${{ vars.DEPLOY_PATH }}
 ```
 
-The default deployment directory is `/sftp/deploy/resources`. Both deployment
-and rollback read their path defaults from `getDeployPaths()` in
-`src/deploy-config.ts`. Set the repository variable `DEPLOY_PATH` to override it
-centrally in the workflows above and below; an empty value uses the default.
+Pass `deploy_path` from the calling workflow, for example using the repository
+variable `DEPLOY_PATH`. There is no default deployment directory: deployment
+and rollback fail if the input is empty. Upload-only runs do not require it.
+Both modes read their paths through `getDeployPaths()` in `src/deploy-config.ts`.
 The path is configuration, not a credential. If you want it masked in logs,
 use `${{ secrets.DEPLOY_PATH }}` instead. Keep `ssh_key` and the forum cookie in
 GitHub Secrets. The path must exist or be creatable in the SSH shell's filesystem;

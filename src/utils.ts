@@ -16,6 +16,8 @@ import fs from 'fs'
 import path from 'path'
 import yazl from 'yazl'
 import { zipRuntimeAsset } from './runtime-package'
+import { writeResourceZip } from './packaging/archive'
+import { listFiles } from './packaging/paths'
 
 // ============================================================================
 // HELPERS
@@ -457,27 +459,6 @@ export function getUrl(type: keyof typeof Urls, id?: string): string {
   return id ? url.replace('{id}', id) : url
 }
 
-type TreeNode = string | Record<string, TreeNode[]> | null
-
-function buildTree(currentPath: string): TreeNode {
-  const stats = fs.statSync(currentPath)
-
-  if (stats.isFile()) {
-    return path.basename(currentPath)
-  }
-
-  if (stats.isDirectory()) {
-    const children = fs.readdirSync(currentPath)
-    return {
-      [path.basename(currentPath)]: children.map((child: string) =>
-        buildTree(path.join(currentPath, child))
-      )
-    }
-  }
-
-  return null
-}
-
 export function getEnv(name: string): string {
   if (process.env[name] === undefined) {
     throw new Error(`Environment variable ${name} is not set.`)
@@ -494,45 +475,12 @@ export async function zipAsset(
     return zipRuntimeAsset(assetName, getEnv('GITHUB_WORKSPACE'))
   if (packageMode !== 'all')
     throw new Error(`Invalid packageMode: ${packageMode}`)
-  core.debug('Zipping asset...')
-
-  const workspacePath = getEnv('GITHUB_WORKSPACE')
-  const outputZipPath = assetName + '.zip'
-  const zipfile = new yazl.ZipFile()
-
-  function addDirectoryToZip(dir: string, zipPath: string): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
-      const entryZipPath = path.join(zipPath, entry.name)
-      if (entry.isDirectory()) {
-        core.debug(`Entering directory ${fullPath}...`)
-        addDirectoryToZip(fullPath, entryZipPath)
-      } else if (entry.isFile()) {
-        core.debug(`Adding file ${fullPath} as ${entryZipPath}...`)
-        zipfile.addFile(fullPath, entryZipPath, { compress: true })
-      }
-    }
-  }
-
-  core.debug('Adding files to zip...')
-  addDirectoryToZip(workspacePath, assetName)
-
-  core.debug(
-    'Zip content: ' + JSON.stringify(buildTree(workspacePath), null, 2)
+  return await writeResourceZip(
+    getEnv('GITHUB_WORKSPACE'),
+    `${assetName}.zip`,
+    assetName,
+    listFiles(getEnv('GITHUB_WORKSPACE'), EXCLUDE_DIRS)
   )
-  zipfile.end()
-
-  const outputStream = fs.createWriteStream(outputZipPath)
-  return new Promise((resolve, reject) => {
-    zipfile.outputStream
-      .pipe(outputStream)
-      .on('close', () => {
-        console.log(`Asset zipped to ${outputZipPath}`)
-        resolve(path.resolve(outputZipPath))
-      })
-      .on('error', reject)
-  })
 }
 
 export function deleteIfExists(_path: string): void {
@@ -694,57 +642,15 @@ export async function createOpenSourceVersion(
 async function zipDirectory(
   sourceDir: string,
   zipPath: string,
-  _rootFolderName: string,
+  rootFolderName: string,
   excludePaths: string[] = []
 ): Promise<string> {
-  const zipfile = new yazl.ZipFile()
-  const outputZipPath = path.resolve(zipPath)
-
-  // Normalize exclude paths for comparison
-  const normalizedExcludes = excludePaths.map(p => path.normalize(p))
-
-  function addDirectoryToZip(dir: string, zipPath: string): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
-      const relativePath = path.relative(sourceDir, fullPath)
-
-      // Check if this path should be excluded
-      const shouldExclude = normalizedExcludes.some(exclude => {
-        const normalized = path.normalize(relativePath)
-        return (
-          normalized === exclude || normalized.startsWith(exclude + path.sep)
-        )
-      })
-
-      if (shouldExclude) {
-        core.debug(`Excluding from ZIP: ${relativePath}`)
-        continue
-      }
-
-      const entryZipPath = path.join(zipPath, entry.name)
-      if (entry.isDirectory()) {
-        addDirectoryToZip(fullPath, entryZipPath)
-      } else if (entry.isFile()) {
-        zipfile.addFile(fullPath, entryZipPath, { compress: true })
-      }
-    }
-  }
-
-  // Add files inside root folder with the resource name
-  addDirectoryToZip(sourceDir, _rootFolderName)
-  zipfile.end()
-
-  const outputStream = fs.createWriteStream(outputZipPath)
-  return new Promise((resolve, reject) => {
-    zipfile.outputStream
-      .pipe(outputStream)
-      .on('close', () => {
-        core.info(`Directory zipped to ${outputZipPath}`)
-        resolve(outputZipPath)
-      })
-      .on('error', reject)
-  })
+  return await writeResourceZip(
+    sourceDir,
+    zipPath,
+    rootFolderName,
+    listFiles(sourceDir, excludePaths)
+  )
 }
 
 /**

@@ -1,0 +1,40 @@
+name: Package and verify a CFX resource
+description:
+  Create manifest-based runtime archives or verify a custom ZIP without
+  rebuilding the web.
+inputs:
+  operation:
+    description:
+      prepare, package (manifest runtime), collect (custom ZIP) or inspect
+    required: true
+  resource-name:
+    description: Resource directory name inside the ZIP
+    required: true
+  manifest-path:
+    description: Workspace-relative source manifest
+    default: fxmanifest.lua
+  version-mode:
+    description: run (MAJOR.run_number.run_attempt) or manifest (unchanged)
+    default: run
+  web-build-path:
+    description:
+      Optional resource-relative production web directory; empty skips web
+      checks
+  zip-path:
+    description: Workspace-relative ZIP path for collect or inspect
+  expected-version:
+    description:
+      Required for package, collect and inspect; compared to the ZIP manifest
+  expected-sha256:
+    description: Required for inspect; the SHA-256 output from collect
+outputs:
+  version:
+    description: Validated manifest version
+  sha256:
+    description: SHA-256 of the verified ZIP
+  artifact-directory:
+    description:
+      package or collect output directory with archives and provenance files
+runs:
+  using: node20
+  main: ../dist/package/index.js

@@ -90,7 +90,8 @@ inputs:
     required: false
     default: '22'
   deploy_path:
-    description: 'Path to resources folder on server'
+    description:
+      'Path to resources folder on server; required for deploy or rollback'
     required: false
   deploy_resource_name:
     description: 'Resource folder name on server (defaults to asset_name)'

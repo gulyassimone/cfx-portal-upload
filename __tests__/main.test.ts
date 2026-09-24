@@ -49,6 +49,7 @@ beforeEach(() => {
     zipPath: zip,
     makeZip: 'false',
     deploy: 'true',
+    deploy_path: '/test/resources',
     ssh_host: 'example.invalid',
     ssh_user: 'test',
     ssh_key: 'test-key'
@@ -76,6 +77,7 @@ beforeEach(() => {
 test('creates a missing asset with the Portal version-scoped upload flow', async () => {
   inputs.assetVersion = '2.0.0'
   inputs.deploy = 'false'
+  delete inputs.deploy_path
   post.mockImplementation(
     async (url: string) =>
       ({
@@ -171,3 +173,13 @@ test.each(['true', 'false'])(
     )
   }
 )
+
+test('missing deploy_path blocks deployment before uploading', async () => {
+  delete inputs.deploy_path
+  await run()
+  expect(core.setFailed).toHaveBeenCalledWith(
+    'deploy_path is required for deployment or rollback.'
+  )
+  expect(post).not.toHaveBeenCalled()
+  expect(deployAsset).not.toHaveBeenCalled()
+})
