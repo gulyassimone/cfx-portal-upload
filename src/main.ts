@@ -1,3 +1,4 @@
+import { logPortalRequest } from './portal-log'
 import * as core from '@actions/core'
 import puppeteer, { Browser, Page } from 'puppeteer'
 import FormData from 'form-data'
@@ -632,39 +633,39 @@ async function startReupload(
   core.debug(`Chunk size: ${chunkSize}`)
   core.debug(`Chunk count: ${chunkCount}`)
 
-  try {
-    const reUploadReponse = await axios.post<ReUploadResponse>(
-      getUrl('REUPLOAD', assetId),
-      {
-        chunk_count: chunkCount,
-        chunk_size: chunkSize,
-        name: originalFileName,
-        original_file_name: originalFileName,
-        total_size: totalSize,
-        version
-      },
-      {
-        headers: {
-          Cookie: cookies
+  const reUploadReponse = await logPortalRequest(
+    `POST /assets/${assetId}/re-upload (version=${version}, bytes=${totalSize}, chunks=${chunkCount})`,
+    async () =>
+      axios.post<ReUploadResponse>(
+        getUrl('REUPLOAD', assetId),
+        {
+          chunk_count: chunkCount,
+          chunk_size: chunkSize,
+          name: originalFileName,
+          original_file_name: originalFileName,
+          total_size: totalSize,
+          version
+        },
+        {
+          headers: {
+            Cookie: cookies
+          }
         }
-      }
-    )
+      ),
+    [cookies]
+  )
 
-    if (reUploadReponse.data.errors !== null) {
-      core.debug(JSON.stringify(reUploadReponse.data.errors))
-      throw new Error(
-        'Failed to re-upload file. See debug logs for more information.'
-      )
-    }
-    return parseUploadedVersion(reUploadReponse.data, assetId)
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      core.error(
-        `CFX re-upload failed (${error.response?.status ?? 'unknown'}): ${JSON.stringify(error.response?.data ?? error.message)}`
-      )
-    }
-    throw error
+  if (reUploadReponse.data.errors !== null) {
+    core.debug(JSON.stringify(reUploadReponse.data.errors))
+    throw new Error(
+      'Failed to re-upload file. See debug logs for more information.'
+    )
   }
+  const uploaded = parseUploadedVersion(reUploadReponse.data, assetId)
+  core.info(
+    `[CFX] Upload initialized: asset_id=${uploaded.assetId}, version_id=${uploaded.versionId}; file chunks still need uploading`
+  )
+  return uploaded
 }
 
 /**
@@ -707,12 +708,17 @@ async function uploadZip(
       contentType: 'application/octet-stream'
     })
 
-    await axios.post(getUrl('UPLOAD_CHUNK', assetId), form, {
-      headers: {
-        ...form.getHeaders(),
-        Cookie: cookies
-      }
-    })
+    await logPortalRequest(
+      `POST /assets/${assetId}/upload-chunk (version_id=${uploaded.versionId}, chunk=${chunkIndex + 1}/${chunkCount}, chunk_id=${chunkIndex}, bytes=${(chunk as Buffer).length})`,
+      async () =>
+        axios.post(getUrl('UPLOAD_CHUNK', assetId), form, {
+          headers: {
+            ...form.getHeaders(),
+            Cookie: cookies
+          }
+        }),
+      [cookies]
+    )
 
     core.info(`Uploaded chunk ${chunkIndex + 1}/${chunkCount}`)
 
@@ -744,10 +750,13 @@ async function createAsset(
     version
   }
   core.info(`Creating asset with Portal payload: ${JSON.stringify(payload)}`)
-  const response = await axios.post<CreateAssetResponse>(
-    `${Urls.API}me/assets`,
-    payload,
-    { headers: { Cookie: cookies } }
+  const response = await logPortalRequest(
+    `POST /me/assets (name=${assetName}, version=${version}, bytes=${totalSize})`,
+    async () =>
+      axios.post<CreateAssetResponse>(`${Urls.API}me/assets`, payload, {
+        headers: { Cookie: cookies }
+      }),
+    [cookies]
   )
   const { asset_id: assetId, version_id: versionId } = response.data
   if (!Number.isSafeInteger(assetId) || !Number.isSafeInteger(versionId)) {
@@ -755,6 +764,9 @@ async function createAsset(
       'Portal did not return an asset ID and version ID for the new asset'
     )
   }
+  core.info(
+    `[CFX] Asset initialized: asset_id=${assetId}, version_id=${versionId}; file chunks still need uploading`
+  )
   const url = `${Urls.API}assets/${assetId}/versions/${versionId}`
   let index = 0
   for await (const chunk of createReadStream(zipPath, {
@@ -766,15 +778,25 @@ async function createAsset(
       filename: 'blob',
       contentType: 'application/octet-stream'
     })
-    await axios.post(`${url}/upload-chunk`, form, {
-      headers: { ...form.getHeaders(), Cookie: cookies }
-    })
+    await logPortalRequest(
+      `POST /assets/${assetId}/versions/${versionId}/upload-chunk (chunk_id=${index}, bytes=${(chunk as Buffer).length})`,
+      async () =>
+        axios.post(`${url}/upload-chunk`, form, {
+          headers: { ...form.getHeaders(), Cookie: cookies }
+        }),
+      [cookies]
+    )
     index++
   }
-  await axios.post(
-    `${url}/complete-upload`,
-    {},
-    { headers: { Cookie: cookies } }
+  await logPortalRequest(
+    `POST /assets/${assetId}/versions/${versionId}/complete-upload`,
+    async () =>
+      axios.post(
+        `${url}/complete-upload`,
+        {},
+        { headers: { Cookie: cookies } }
+      ),
+    [cookies]
   )
   core.info(
     `Created asset "${assetName}" (ID: ${assetId}, version: ${versionId})`
@@ -789,14 +811,19 @@ async function createAsset(
  * @returns {Promise<void>} Resolves when the upload is complete.
  */
 async function completeUpload(assetId: string, cookies: string): Promise<void> {
-  await axios.post(
-    getUrl('COMPLETE_UPLOAD', assetId),
-    {},
-    {
-      headers: {
-        Cookie: cookies
-      }
-    }
+  await logPortalRequest(
+    `POST /assets/${assetId}/complete-upload`,
+    async () =>
+      axios.post(
+        getUrl('COMPLETE_UPLOAD', assetId),
+        {},
+        {
+          headers: {
+            Cookie: cookies
+          }
+        }
+      ),
+    [cookies]
   )
 
   core.info('Upload completed.')

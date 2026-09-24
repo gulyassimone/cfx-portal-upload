@@ -1,3 +1,4 @@
+import { logPortalRequest } from './portal-log'
 import * as core from '@actions/core'
 import axios from 'axios'
 import fs from 'fs'
@@ -28,9 +29,14 @@ async function findAssetByName(
   while (page <= maxPages) {
     const url = `${PORTAL_API}/me/assets?page=${page}&search=${encodeURIComponent(assetName)}&sort=asset.id&direction=desc`
 
-    const response = await axios.get<PortalAssetsResponse>(url, {
-      headers: { Cookie: cookie }
-    })
+    const response = await logPortalRequest(
+      `GET /me/assets (name=${assetName}, page=${page})`,
+      async () =>
+        axios.get<PortalAssetsResponse>(url, {
+          headers: { Cookie: cookie }
+        }),
+      [cookie]
+    )
 
     const asset = response.data.items.find(a => a.name === assetName)
     if (asset) {
@@ -104,9 +110,14 @@ export async function downloadAsset(
   core.info(`Requesting download URL from: ${downloadUrl}`)
 
   // Get the signed URL from the API
-  const urlResponse = await axios.get<{ url: string }>(downloadUrl, {
-    headers: { Cookie: cookie }
-  })
+  const urlResponse = await logPortalRequest(
+    `GET /assets/${asset.id}/versions/${version.id}/packs/${pack.id}/download`,
+    async () =>
+      axios.get<{ url: string }>(downloadUrl, {
+        headers: { Cookie: cookie }
+      }),
+    [cookie]
+  )
 
   if (!urlResponse.data?.url) {
     core.error(`Unexpected API response: ${JSON.stringify(urlResponse.data)}`)
@@ -117,10 +128,15 @@ export async function downloadAsset(
   core.info(`Got signed download URL`)
 
   // Download the actual file from the signed URL
-  const response = await axios.get(signedUrl, {
-    responseType: 'arraybuffer',
-    maxRedirects: 5
-  })
+  const response = await logPortalRequest(
+    `GET signed ZIP (asset=${asset.id}, version=${version.id}, pack=${pack.id})`,
+    async () =>
+      axios.get<Buffer>(signedUrl, {
+        responseType: 'arraybuffer',
+        maxRedirects: 5
+      }),
+    [cookie, signedUrl]
+  )
 
   // Validate response
   const contentType = response.headers['content-type'] || ''
