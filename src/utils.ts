@@ -15,6 +15,7 @@ import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
 import yazl from 'yazl'
+import { zipRuntimeAsset } from './runtime-package'
 
 // ============================================================================
 // HELPERS
@@ -373,9 +374,11 @@ export async function resolveAssetId(
 
     if (search.data.items.length == 0) {
       core.info(`🆕 Asset "${name}" does not exist; creating it...`)
-      const created = await axios.post<
-        { id?: unknown; asset_id?: unknown; asset?: { id?: unknown } }
-      >(
+      const created = await axios.post<{
+        id?: unknown
+        asset_id?: unknown
+        asset?: { id?: unknown }
+      }>(
         'https://portal-api.cfx.re/v1/me/assets',
         { name },
         { headers: { Cookie: cookies } }
@@ -483,7 +486,14 @@ export function getEnv(name: string): string {
   return process.env[name]
 }
 
-export async function zipAsset(assetName: string): Promise<string> {
+export async function zipAsset(
+  assetName: string,
+  packageMode: string = 'all'
+): Promise<string> {
+  if (packageMode === 'runtime')
+    return zipRuntimeAsset(assetName, getEnv('GITHUB_WORKSPACE'))
+  if (packageMode !== 'all')
+    throw new Error(`Invalid packageMode: ${packageMode}`)
   core.debug('Zipping asset...')
 
   const workspacePath = getEnv('GITHUB_WORKSPACE')

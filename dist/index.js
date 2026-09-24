@@ -32575,7 +32575,7 @@ exports.isDirectorySync = isDirectorySync;
 "use strict";
 
 
-const binding = __nccwpck_require__(65243);
+const binding = __nccwpck_require__(87318);
 
 module.exports = binding.getCPUInfo;
 
@@ -78564,7 +78564,7 @@ let AESGCMDecipher;
 let ChaChaPolyDecipher;
 let GenericDecipher;
 try {
-  binding = __nccwpck_require__(68440);
+  binding = __nccwpck_require__(30490);
   ({ AESGCMCipher, ChaChaPolyCipher, GenericCipher,
      AESGCMDecipher, ChaChaPolyDecipher, GenericDecipher } = binding);
 } catch {}
@@ -320230,6 +320230,7 @@ async function run() {
         let assetName = core.getInput('assetName');
         let zipPath = core.getInput('zipPath');
         const makeZip = core.getInput('makeZip').toLowerCase() === 'true';
+        const packageMode = core.getInput('packageMode') || 'all';
         const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true';
         const createIfMissing = core.getInput('createIfMissing').toLowerCase() !== 'false';
         const assetVersion = core.getInput('assetVersion') || '1.0.0';
@@ -320436,7 +320437,7 @@ async function run() {
                 // Original single upload logic
                 if (assetName && createIfMissing && !assetId) {
                     const existing = await (0, utils_1.findAssetId)(assetName, cookies);
-                    zipPath = await getZipPath(assetName, zipPath, makeZip);
+                    zipPath = await getZipPath(assetName, zipPath, makeZip, packageMode);
                     core.info(existing
                         ? `Using existing asset "${assetName}" (ID: ${existing})`
                         : `Asset "${assetName}" was not found; creating it`);
@@ -320449,7 +320450,7 @@ async function run() {
                         core.info(`🔍 Looking up single asset by name: ${assetName}`);
                         assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
                     }
-                    zipPath = await getZipPath(assetName, zipPath, makeZip);
+                    zipPath = await getZipPath(assetName, zipPath, makeZip, packageMode);
                     uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies, assetVersion);
                 }
             }
@@ -320596,7 +320597,7 @@ async function getCookies(browser) {
  * @returns {Promise<string>} Resolves with the path to the zip file.
  * @throws If neither zipPath nor makeZip is provided, or if the pre-zip command fails.
  */
-async function getZipPath(assetName, zipPath, makeZip) {
+async function getZipPath(assetName, zipPath, makeZip, packageMode) {
     core.debug('Zip path: ' + JSON.stringify(zipPath));
     if (zipPath.length > 0) {
         core.debug('Using provided zip path.');
@@ -320606,11 +320607,13 @@ async function getZipPath(assetName, zipPath, makeZip) {
         throw new Error('Either zipPath or makeZip must be provided to upload a file.');
     }
     core.info('Creating zip file ...');
-    // Clean up github things before zipping
-    (0, utils_1.deleteIfExists)('.git/');
-    (0, utils_1.deleteIfExists)('.github/');
-    (0, utils_1.deleteIfExists)('.vscode/');
-    return (0, utils_1.zipAsset)(assetName);
+    // The runtime packer needs the Git index to select tracked files.
+    if (packageMode === 'all') {
+        (0, utils_1.deleteIfExists)('.git/');
+        (0, utils_1.deleteIfExists)('.github/');
+        (0, utils_1.deleteIfExists)('.vscode/');
+    }
+    return (0, utils_1.zipAsset)(assetName, packageMode);
 }
 /**
  * Starts the re-upload process by uploading the asset in chunks.
@@ -320867,6 +320870,158 @@ function safePreview(value, secrets) {
 
 /***/ }),
 
+/***/ 47618:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.runtimeFiles = runtimeFiles;
+exports.zipRuntimeAsset = zipRuntimeAsset;
+const core = __importStar(__nccwpck_require__(37484));
+const child_process_1 = __nccwpck_require__(35317);
+const fs_1 = __importDefault(__nccwpck_require__(79896));
+const path_1 = __importDefault(__nccwpck_require__(16928));
+const yazl_1 = __importDefault(__nccwpck_require__(93044));
+const EXCLUDED_DIRS = new Set([
+    '.git',
+    '.github',
+    '.vscode',
+    '.idea',
+    'node_modules',
+    'tests',
+    '__tests__',
+    'e2e',
+    'docs',
+    'coverage',
+    'escrowed',
+    'open-source'
+]);
+const BUILD_DIRS = ['web/build', 'web/dist', 'html/static'];
+const BUILD_FILES = ['html/index.html'];
+function includeRuntimeFile(relativePath) {
+    const parts = relativePath.split('/');
+    const name = parts[parts.length - 1];
+    if (parts.some(part => EXCLUDED_DIRS.has(part)) || parts[0] === 'dist')
+        return false;
+    if (parts.some(part => part.startsWith('.') && part !== '.fxap'))
+        return false;
+    if (parts.length > 1 &&
+        ['web', 'html'].includes(parts[0]) &&
+        ['src', 'scripts', 'e2e', 'node_modules'].includes(parts[1]))
+        return false;
+    if (/^(readme|license|changelog|contributing)(\.|$)/i.test(name))
+        return false;
+    if (/^(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig.*\.json|vite\.config\..*|jest\.config\..*)$/i.test(name))
+        return false;
+    if (/\.(map|ts|tsx|md|zip|rar|7z|tar|gz)$/i.test(name))
+        return false;
+    return true;
+}
+function runtimeFiles(workspace) {
+    const tracked = (0, child_process_1.execFileSync)('git', ['ls-files', '-z'], {
+        cwd: workspace,
+        encoding: 'utf8'
+    })
+        .split('\0')
+        .filter(Boolean);
+    const files = new Set(tracked.filter(includeRuntimeFile));
+    for (const directory of BUILD_DIRS) {
+        const absolute = path_1.default.join(workspace, directory);
+        if (!fs_1.default.existsSync(absolute))
+            continue;
+        const visit = (folder) => {
+            for (const entry of fs_1.default.readdirSync(folder, { withFileTypes: true })) {
+                const fullPath = path_1.default.join(folder, entry.name);
+                if (entry.isDirectory())
+                    visit(fullPath);
+                else if (entry.isFile()) {
+                    const relative = path_1.default
+                        .relative(workspace, fullPath)
+                        .replaceAll(path_1.default.sep, '/');
+                    if (includeRuntimeFile(relative))
+                        files.add(relative);
+                }
+            }
+        };
+        visit(absolute);
+    }
+    for (const file of BUILD_FILES) {
+        if (fs_1.default.existsSync(path_1.default.join(workspace, file)))
+            files.add(file);
+    }
+    return [...files]
+        .filter(file => {
+        const absolute = path_1.default.join(workspace, file);
+        return (fs_1.default.existsSync(absolute) &&
+            fs_1.default.statSync(absolute).isFile() &&
+            fs_1.default.realpathSync(absolute) === absolute);
+    })
+        .sort();
+}
+async function zipRuntimeAsset(assetName, workspace) {
+    if (!/^[A-Za-z0-9_-]+$/.test(assetName)) {
+        throw new Error('Runtime ZIP asset name must be a simple resource name');
+    }
+    const files = runtimeFiles(workspace);
+    if (!files.includes('fxmanifest.lua')) {
+        throw new Error('Runtime ZIP requires fxmanifest.lua');
+    }
+    const outputPath = path_1.default.resolve(`${assetName}.zip`);
+    const zip = new yazl_1.default.ZipFile();
+    for (const file of files)
+        zip.addFile(path_1.default.join(workspace, file), `${assetName}/${file}`);
+    zip.end();
+    await new Promise((resolve, reject) => {
+        const stream = fs_1.default.createWriteStream(outputPath);
+        zip.outputStream.on('error', reject);
+        stream.on('error', reject);
+        stream.on('close', resolve);
+        zip.outputStream.pipe(stream);
+    });
+    core.info(`Packaged ${files.length} runtime files in ${outputPath}`);
+    return outputPath;
+}
+
+
+/***/ }),
+
 /***/ 38522:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -320976,6 +321131,7 @@ const axios_1 = __importDefault(__nccwpck_require__(87269));
 const fs_1 = __importDefault(__nccwpck_require__(79896));
 const path_2 = __importDefault(__nccwpck_require__(16928));
 const yazl_1 = __importDefault(__nccwpck_require__(93044));
+const runtime_package_1 = __nccwpck_require__(47618);
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -321336,7 +321492,11 @@ function getEnv(name) {
     }
     return process.env[name];
 }
-async function zipAsset(assetName) {
+async function zipAsset(assetName, packageMode = 'all') {
+    if (packageMode === 'runtime')
+        return (0, runtime_package_1.zipRuntimeAsset)(assetName, getEnv('GITHUB_WORKSPACE'));
+    if (packageMode !== 'all')
+        throw new Error(`Invalid packageMode: ${packageMode}`);
     core.debug('Zipping asset...');
     const workspacePath = getEnv('GITHUB_WORKSPACE');
     const outputZipPath = assetName + '.zip';
@@ -321573,17 +321733,19 @@ async function createVersions(options, assetName) {
 
 /***/ }),
 
-/***/ 65243:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+/***/ 87318:
+/***/ ((module) => {
 
-module.exports = require(__nccwpck_require__.ab + "build/Release/cpufeatures.node")
+module.exports = eval("require")("../build/Release/cpufeatures.node");
+
 
 /***/ }),
 
-/***/ 68440:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+/***/ 30490:
+/***/ ((module) => {
 
-module.exports = require(__nccwpck_require__.ab + "lib/protocol/crypto/build/Release/sshcrypto.node")
+module.exports = eval("require")("./crypto/build/Release/sshcrypto.node");
+
 
 /***/ }),
 

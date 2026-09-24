@@ -45,6 +45,12 @@ inputs:
     description: 'Automatically create ZIP from repository'
     required: false
     default: true
+  packageMode:
+    description:
+      'ZIP contents: all (legacy) or runtime (tracked resource files and built
+      web assets)'
+    required: false
+    default: all
   zipPath:
     description: 'Path to pre-made ZIP file'
     required: false

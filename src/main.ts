@@ -87,6 +87,7 @@ export async function run(): Promise<void> {
 
     let zipPath = core.getInput('zipPath')
     const makeZip = core.getInput('makeZip').toLowerCase() === 'true'
+    const packageMode = core.getInput('packageMode') || 'all'
     const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true'
     const createIfMissing =
       core.getInput('createIfMissing').toLowerCase() !== 'false'
@@ -358,7 +359,7 @@ export async function run(): Promise<void> {
         // Original single upload logic
         if (assetName && createIfMissing && !assetId) {
           const existing = await findAssetId(assetName, cookies)
-          zipPath = await getZipPath(assetName, zipPath, makeZip)
+          zipPath = await getZipPath(assetName, zipPath, makeZip, packageMode)
           core.info(
             existing
               ? `Using existing asset "${assetName}" (ID: ${existing})`
@@ -385,7 +386,7 @@ export async function run(): Promise<void> {
             assetId = await resolveAssetId(assetName, cookies)
           }
 
-          zipPath = await getZipPath(assetName, zipPath, makeZip)
+          zipPath = await getZipPath(assetName, zipPath, makeZip, packageMode)
           uploadedForDeployment = await uploadZip(
             zipPath,
             assetId,
@@ -578,7 +579,8 @@ async function getCookies(browser: Browser): Promise<string> {
 async function getZipPath(
   assetName: string,
   zipPath: string,
-  makeZip: boolean
+  makeZip: boolean,
+  packageMode: string
 ): Promise<string> {
   core.debug('Zip path: ' + JSON.stringify(zipPath))
   if (zipPath.length > 0) {
@@ -594,12 +596,14 @@ async function getZipPath(
 
   core.info('Creating zip file ...')
 
-  // Clean up github things before zipping
-  deleteIfExists('.git/')
-  deleteIfExists('.github/')
-  deleteIfExists('.vscode/')
+  // The runtime packer needs the Git index to select tracked files.
+  if (packageMode === 'all') {
+    deleteIfExists('.git/')
+    deleteIfExists('.github/')
+    deleteIfExists('.vscode/')
+  }
 
-  return zipAsset(assetName)
+  return zipAsset(assetName, packageMode)
 }
 
 /**

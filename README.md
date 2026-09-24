@@ -364,3 +364,12 @@ jobs:
 2. Create a branch for your changes
 3. Make changes
 4. Create a Pull Request
+
+### Runtime-only resource ZIPs
+
+Set `makeZip: 'true'` and `packageMode: runtime` to create a ZIP containing
+tracked resource files and generated assets in `web/build`, `web/dist`, or
+`html/static`. Development files such as tests, README files, web source,
+package manifests, and dependencies are excluded. Build the web app in a
+workflow step before invoking this action. The default `packageMode: all`
+retains the existing ZIP behavior.
