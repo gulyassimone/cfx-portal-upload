@@ -320191,6 +320191,19 @@ const utils_1 = __nccwpck_require__(71798);
  * @returns {Promise<void>} Resolves when the action is complete.
  */
 async function run() {
+    if (core.getInput('packageOnly').toLowerCase() === 'true') {
+        try {
+            const assetName = core.getInput('assetName');
+            if (!assetName)
+                throw new Error('packageOnly requires assetName');
+            const zipPath = await (0, utils_1.zipAsset)(assetName, core.getInput('packageMode') || 'runtime');
+            core.setOutput('zipPath', zipPath);
+        }
+        catch (error) {
+            core.setFailed(error instanceof Error ? error.message : String(error));
+        }
+        return;
+    }
     const rollbackMode = core.getInput('rollback').toLowerCase() === 'true';
     if (rollbackMode) {
         try {

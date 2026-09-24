@@ -45,6 +45,11 @@ inputs:
     description: 'Automatically create ZIP from repository'
     required: false
     default: true
+  packageOnly:
+    description:
+      'Create a ZIP and expose zipPath without authenticating or uploading'
+    required: false
+    default: 'false'
   packageMode:
     description:
       'ZIP contents: all (legacy) or runtime (tracked resource files and built
@@ -105,6 +110,10 @@ inputs:
   discord_webhook:
     description: 'Discord webhook URL for notifications'
     required: false
+
+outputs:
+  zipPath:
+    description: 'Path to the ZIP created by packageOnly'
 
 runs:
   using: node20

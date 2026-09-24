@@ -1,0 +1,72 @@
+name: Reusable FiveM resource CI
+
+on:
+  workflow_call:
+    inputs:
+      resource-name:
+        description: FiveM resource name
+        required: true
+        type: string
+      runners:
+        description: JSON array of GitHub runner labels
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "x64"]'
+      web-build-path:
+        description: Build output to upload; empty for resources without a web build
+        required: false
+        type: string
+        default: ''
+      node-version:
+        description: Node.js version for a web build
+        required: false
+        type: string
+        default: '22'
+
+permissions:
+  contents: read
+
+jobs:
+  resource:
+    name: Check Lua resource
+    runs-on: ${{ fromJSON(inputs.runners) }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check manifest and Lua syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f fxmanifest.lua
+          git ls-files -z -- '*.lua' | xargs -0 -r -n 1 luac5.4 -p
+
+  web:
+    name: Build web UI
+    if: inputs['web-build-path'] != ''
+    runs-on: ${{ fromJSON(inputs.runners) }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs['node-version'] }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build production web UI
+        run: npm run build
+      - name: Save production web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs['resource-name'] }}-web-${{ github.sha }}
+          path: ${{ inputs['web-build-path'] }}
+          if-no-files-found: error
+          retention-days: 14

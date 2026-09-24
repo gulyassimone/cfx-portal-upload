@@ -22,7 +22,9 @@ on:
         type: string
         default: ''
       web-artifact-name:
-        description: CI artifact containing the built web files; leave empty when there is no web build
+        description:
+          CI artifact containing the built web files; leave empty when there is
+          no web build
         required: false
         type: string
         default: ''
@@ -33,12 +35,19 @@ on:
         default: ''
       package-command:
         description: Shell command that creates the release ZIP
-        required: true
+        required: false
         type: string
+        default: ''
       package-zip:
         description: Path to the release ZIP produced by package-command
-        required: true
+        required: false
         type: string
+        default: ''
+      deploy-enabled:
+        description: Whether to upload and deploy on the deploy branch
+        required: false
+        type: boolean
+        default: true
       deploy-branch:
         description: Branch allowed to deploy
         required: true
@@ -73,7 +82,9 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runners) }}
     timeout-minutes: 20
     outputs:
-      artifact-name: ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-name:
+        ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{
+        github.run_attempt }}
       asset-version: ${{ steps.zip-version.outputs.version }}
       zip-name: ${{ steps.zip-version.outputs.zip-name }}
     steps:
@@ -104,24 +115,35 @@ jobs:
           manifest = manifest_path.read_text(encoding='utf-8')
           pattern = r"^version\s+['\"]([0-9]+)\.[0-9]+\.[0-9]+['\"]\s*$"
           matches = re.findall(pattern, manifest, re.MULTILINE)
-          if len(matches) != 1:
-              raise SystemExit('Expected exactly one semantic version in fxmanifest.lua')
+          if len(matches) > 1:
+              raise SystemExit('Expected at most one semantic version in fxmanifest.lua')
           run_number = int(os.environ['GITHUB_RUN_NUMBER'])
           attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
           if run_number < 1 or attempt < 1:
               raise SystemExit('Release run number and attempt must be positive')
-          version = f'{matches[0]}.{run_number}.{attempt}'
-          manifest_path.write_text(re.sub(pattern, f"version '{version}'", manifest, flags=re.MULTILINE), encoding='utf-8')
+          version = f'{matches[0] if matches else 1}.{run_number}.{attempt}'
+          updated = re.sub(pattern, f"version '{version}'", manifest, flags=re.MULTILINE) if matches else manifest.rstrip() + f"\nversion '{version}'\n"
+          manifest_path.write_text(updated, encoding='utf-8')
           print(f'Packaging {os.environ["RESOURCE_NAME"]} version {version}')
-      - name: Package release
+      - name: Package custom release
+        if: inputs['package-command'] != ''
         env:
           PACKAGE_COMMAND: ${{ inputs['package-command'] }}
         run: bash -euo pipefail -c "$PACKAGE_COMMAND"
+      - name: Package resource files
+        if: inputs['package-command'] == ''
+        uses: gulyassimone/cfx-portal-upload@latest
+        with:
+          assetName: ${{ inputs['resource-name'] }}
+          packageOnly: 'true'
+          packageMode: runtime
       - name: Read version from the packaged manifest
         id: zip-version
         shell: python3 {0}
         env:
-          PACKAGE_ZIP: ${{ inputs['package-zip'] }}
+          PACKAGE_ZIP:
+            ${{ inputs['package-zip'] || format('{0}.zip',
+            inputs['resource-name']) }}
           RESOURCE_NAME: ${{ inputs['resource-name'] }}
         run: |
           import os
@@ -138,13 +160,34 @@ jobs:
               raise SystemExit('Expected exactly one semantic version in the packaged fxmanifest.lua')
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
               output.write(f'version={versions[0]}\n')
-          output.write(f'zip-name={zip_path.name}\n')
+              output.write(f'zip-name={zip_path.name}\n')
+      - name: Write release inventory
+        shell: python3 {0}
+        env:
+          PACKAGE_ZIP:
+            ${{ inputs['package-zip'] || format('{0}.zip',
+            inputs['resource-name']) }}
+        run: |
+          import hashlib
+          import os
+          import zipfile
+          from pathlib import Path
+
+          zip_path = Path(os.environ['PACKAGE_ZIP'])
+          output = Path('dist')
+          output.mkdir(exist_ok=True)
+          digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+          (output / 'SHA256SUMS').write_text(f'{digest}  {zip_path.name}\n', encoding='utf-8')
+          with zipfile.ZipFile(zip_path) as archive:
+              (output / 'contents.txt').write_text('\n'.join(archive.namelist()) + '\n', encoding='utf-8')
       - name: Save release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{ github.run_attempt }}
+          name:
+            ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{
+            github.run_attempt }}
           path: |
-            ${{ inputs['package-zip'] }}
+            ${{ inputs['package-zip'] || format('{0}.zip', inputs['resource-name']) }}
             dist/${{ inputs['resource-name'] }}-release.metadata.json
             dist/SHA256SUMS
             dist/contents.txt
@@ -154,7 +197,7 @@ jobs:
   deploy:
     name: Upload and deploy ${{ inputs['resource-name'] }}
     needs: package
-    if: github.ref_name == inputs['deploy-branch']
+    if: inputs['deploy-enabled'] && github.ref_name == inputs['deploy-branch']
     runs-on: ${{ fromJSON(inputs.runners) }}
     timeout-minutes: 30
     steps:

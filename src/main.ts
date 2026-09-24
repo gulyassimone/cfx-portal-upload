@@ -35,6 +35,21 @@ import {
  * @returns {Promise<void>} Resolves when the action is complete.
  */
 export async function run(): Promise<void> {
+  if (core.getInput('packageOnly').toLowerCase() === 'true') {
+    try {
+      const assetName = core.getInput('assetName')
+      if (!assetName) throw new Error('packageOnly requires assetName')
+      const zipPath = await zipAsset(
+        assetName,
+        core.getInput('packageMode') || 'runtime'
+      )
+      core.setOutput('zipPath', zipPath)
+    } catch (error) {
+      core.setFailed(error instanceof Error ? error.message : String(error))
+    }
+    return
+  }
+
   const rollbackMode = core.getInput('rollback').toLowerCase() === 'true'
 
   if (rollbackMode) {
