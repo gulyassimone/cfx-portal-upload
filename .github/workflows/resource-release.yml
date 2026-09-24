@@ -1,0 +1,180 @@
+name: Reusable FiveM resource release
+
+on:
+  workflow_call:
+    inputs:
+      resource-name:
+        description: Resource directory and manifest root name
+        required: true
+        type: string
+      asset-name:
+        description: CFX Portal asset name
+        required: true
+        type: string
+      runners:
+        description: JSON array of GitHub runner labels
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+      node-version-file:
+        description: Optional Node version file
+        required: false
+        type: string
+        default: ''
+      web-artifact-name:
+        description: CI artifact containing the built web files; leave empty when there is no web build
+        required: false
+        type: string
+        default: ''
+      web-build-path:
+        description: Directory where the web artifact should be restored
+        required: false
+        type: string
+        default: ''
+      package-command:
+        description: Shell command that creates the release ZIP
+        required: true
+        type: string
+      package-zip:
+        description: Path to the release ZIP produced by package-command
+        required: true
+        type: string
+      deploy-branch:
+        description: Branch allowed to deploy
+        required: true
+        type: string
+      backup-path:
+        description: Remote backup directory
+        required: false
+        type: string
+        default: ~/.cfx-portal-upload/backups
+    secrets:
+      FORUM_COOKIE:
+        required: true
+      SERVER_HOST:
+        required: true
+      SERVER_USER:
+        required: true
+      SSH_KEY:
+        required: true
+      DEPLOY_PATH:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resource-release-${{ inputs['resource-name'] }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package ${{ inputs['resource-name'] }}
+    runs-on: ${{ fromJSON(inputs.runners) }}
+    timeout-minutes: 20
+    outputs:
+      artifact-name: ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{ github.run_attempt }}
+      asset-version: ${{ steps.zip-version.outputs.version }}
+      zip-name: ${{ steps.zip-version.outputs.zip-name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        if: inputs['node-version-file'] != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ inputs['node-version-file'] }}
+      - name: Restore CI web build
+        if: inputs['web-artifact-name'] != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs['web-artifact-name'] }}
+          path: ${{ inputs['web-build-path'] }}
+      - name: Set automatic release version
+        shell: python3 {0}
+        env:
+          RESOURCE_NAME: ${{ inputs['resource-name'] }}
+        run: |
+          import os
+          import re
+          from pathlib import Path
+
+          manifest_path = Path('fxmanifest.lua')
+          manifest = manifest_path.read_text(encoding='utf-8')
+          pattern = r"^version\s+['\"]([0-9]+)\.[0-9]+\.[0-9]+['\"]\s*$"
+          matches = re.findall(pattern, manifest, re.MULTILINE)
+          if len(matches) != 1:
+              raise SystemExit('Expected exactly one semantic version in fxmanifest.lua')
+          run_number = int(os.environ['GITHUB_RUN_NUMBER'])
+          attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
+          if run_number < 1 or attempt < 1:
+              raise SystemExit('Release run number and attempt must be positive')
+          version = f'{matches[0]}.{run_number}.{attempt}'
+          manifest_path.write_text(re.sub(pattern, f"version '{version}'", manifest, flags=re.MULTILINE), encoding='utf-8')
+          print(f'Packaging {os.environ["RESOURCE_NAME"]} version {version}')
+      - name: Package release
+        env:
+          PACKAGE_COMMAND: ${{ inputs['package-command'] }}
+        run: bash -euo pipefail -c "$PACKAGE_COMMAND"
+      - name: Read version from the packaged manifest
+        id: zip-version
+        shell: python3 {0}
+        env:
+          PACKAGE_ZIP: ${{ inputs['package-zip'] }}
+          RESOURCE_NAME: ${{ inputs['resource-name'] }}
+        run: |
+          import os
+          import re
+          import zipfile
+          from pathlib import Path
+
+          zip_path = Path(os.environ['PACKAGE_ZIP'])
+          manifest_path = f"{os.environ['RESOURCE_NAME']}/fxmanifest.lua"
+          with zipfile.ZipFile(zip_path) as archive:
+              manifest = archive.read(manifest_path).decode('utf-8')
+          versions = re.findall(r"^version\s+['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]\s*$", manifest, re.MULTILINE)
+          if len(versions) != 1:
+              raise SystemExit('Expected exactly one semantic version in the packaged fxmanifest.lua')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'version={versions[0]}\n')
+          output.write(f'zip-name={zip_path.name}\n')
+      - name: Save release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs['resource-name'] }}-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ inputs['package-zip'] }}
+            dist/${{ inputs['resource-name'] }}-release.metadata.json
+            dist/SHA256SUMS
+            dist/contents.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy:
+    name: Upload and deploy ${{ inputs['resource-name'] }}
+    needs: package
+    if: github.ref_name == inputs['deploy-branch']
+    runs-on: ${{ fromJSON(inputs.runners) }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package.outputs.artifact-name }}
+          path: dist/
+      - name: Upload to CFX Portal and deploy
+        uses: gulyassimone/cfx-portal-upload@latest
+        with:
+          cookie: ${{ secrets.FORUM_COOKIE }}
+          assetName: ${{ inputs['asset-name'] }}
+          assetVersion: ${{ needs.package.outputs.asset-version }}
+          makeZip: 'false'
+          zipPath: ./dist/${{ needs.package.outputs.zip-name }}
+          deploy: 'true'
+          ssh_host: ${{ secrets.SERVER_HOST }}
+          ssh_user: ${{ secrets.SERVER_USER }}
+          ssh_key: ${{ secrets.SSH_KEY }}
+          ssh_port: '22'
+          deploy_resource_name: ${{ inputs['resource-name'] }}
+          deploy_backup_path: ${{ inputs['backup-path'] }}
+          deploy_path: ${{ secrets.DEPLOY_PATH }}
