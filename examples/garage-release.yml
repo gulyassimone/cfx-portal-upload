@@ -36,6 +36,7 @@ jobs:
       web-artifact-name: sa-garage-web-${{ github.sha }}
       web-build-path: web/build
       package-mode: runtime
+      prune-oldest-version: true
       deploy-branch: master
       backup-path: '~/.cfx-portal-upload/backups'
     secrets:

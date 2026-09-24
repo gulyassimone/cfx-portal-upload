@@ -56,6 +56,11 @@ on:
           Enable CFX upload and deployment; false only publishes artifacts
         type: boolean
         default: true
+      prune-oldest-version:
+        description:
+          Opt in to deleting the oldest safe Portal version before upload
+        type: boolean
+        default: false
       deploy-branch:
         type: string
         default: master
@@ -266,6 +271,7 @@ jobs:
           cookie: ${{ secrets.FORUM_COOKIE }}
           assetName: ${{ inputs.asset-name || inputs.resource-name }}
           assetVersion: ${{ steps.inspect.outputs.version }}
+          pruneOldestVersion: ${{ inputs.prune-oldest-version }}
           makeZip: 'false'
           zipPath:
             ./cfx-release/${{ github.run_id }}-${{ github.run_attempt }}/${{

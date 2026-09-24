@@ -183,3 +183,32 @@ test('missing deploy_path blocks deployment before uploading', async () => {
   expect(post).not.toHaveBeenCalled()
   expect(deployAsset).not.toHaveBeenCalled()
 })
+
+test('opt-in cleanup deletes the oldest safe version before initializing re-upload', async () => {
+  inputs.createIfMissing = 'false'
+  inputs.deploy = 'false'
+  inputs.pruneOldestVersion = 'true'
+  jest.mocked(axios.get).mockResolvedValue({
+    status: 200,
+    data: {
+      id: 7,
+      name: 'sa_garage',
+      versions: [
+        { id: 100, state: 'active', packs: [{ id: 1, game: 'gta5' }] },
+        { id: 101, state: 'active', packs: [{ id: 2, game: 'gta5' }] }
+      ]
+    }
+  } as any)
+  jest.mocked(axios.delete).mockResolvedValue({ status: 204 } as any)
+
+  await run()
+
+  expect(core.setFailed).not.toHaveBeenCalled()
+  expect(axios.delete).toHaveBeenCalledWith(
+    'https://portal-api.cfx.re/v1/assets/7/versions/100',
+    expect.any(Object)
+  )
+  expect(jest.mocked(axios.delete).mock.invocationCallOrder[0]).toBeLessThan(
+    post.mock.invocationCallOrder[0]
+  )
+})

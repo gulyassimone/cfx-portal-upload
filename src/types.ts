@@ -83,6 +83,7 @@ export interface PortalAsset {
   state: string
   versions: {
     id: number
+    version?: string
     state: string
     packs: { id: number; game: string }[]
   }[]

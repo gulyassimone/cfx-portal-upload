@@ -18,6 +18,7 @@ import {
 } from './types'
 import { deployAsset, rollbackToServer } from './deploy'
 import { parseUploadedVersion } from './upload-version'
+import { pruneOldestVersion } from './prune-version'
 import { sendDiscordNotification } from './discord'
 import {
   resolveAssetId,
@@ -102,6 +103,8 @@ export async function run(): Promise<void> {
     let zipPath = core.getInput('zipPath')
     const makeZip = core.getInput('makeZip').toLowerCase() === 'true'
     const packageMode = core.getInput('packageMode') || 'all'
+    const pruneOldest =
+      core.getInput('pruneOldestVersion').toLowerCase() === 'true'
     const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true'
     const createIfMissing =
       core.getInput('createIfMissing').toLowerCase() !== 'false'
@@ -313,7 +316,8 @@ export async function run(): Promise<void> {
               escrowedId,
               chunkSize,
               cookies,
-              assetVersion
+              assetVersion,
+              pruneOldest
             )
         }
 
@@ -362,7 +366,8 @@ export async function run(): Promise<void> {
               openSourceId,
               chunkSize,
               cookies,
-              assetVersion
+              assetVersion,
+              pruneOldest
             )
             uploadedForDeployment ??= uploadedOpenSource
           }
@@ -387,7 +392,8 @@ export async function run(): Promise<void> {
                 existing,
                 chunkSize,
                 cookies,
-                assetVersion
+                assetVersion,
+                pruneOldest
               )
             : await createAsset(
                 zipPath,
@@ -408,7 +414,8 @@ export async function run(): Promise<void> {
             assetId,
             chunkSize,
             cookies,
-            assetVersion
+            assetVersion,
+            pruneOldest
           )
         }
       }
@@ -692,8 +699,20 @@ async function uploadZip(
   assetId: string,
   chunkSize: number,
   cookies: string,
-  version: string
+  version: string,
+  pruneOldest: boolean
 ): Promise<UploadedVersion> {
+  if (pruneOldest) {
+    const size = statSync(zipPath).size
+    if (!size || chunkSize <= 0)
+      throw new Error('Asset ZIP must be nonempty and chunkSize positive')
+    core.startGroup('CFX / Pre-upload version cleanup')
+    try {
+      await pruneOldestVersion(assetId, cookies, version)
+    } finally {
+      core.endGroup()
+    }
+  }
   const uploaded = await startReupload(
     zipPath,
     assetId,

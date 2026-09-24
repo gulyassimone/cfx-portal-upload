@@ -320188,6 +320188,7 @@ const path_1 = __nccwpck_require__(16928);
 const types_1 = __nccwpck_require__(38522);
 const deploy_1 = __nccwpck_require__(29880);
 const upload_version_1 = __nccwpck_require__(99675);
+const prune_version_1 = __nccwpck_require__(98010);
 const discord_1 = __nccwpck_require__(67791);
 const utils_1 = __nccwpck_require__(71798);
 /**
@@ -320248,6 +320249,7 @@ async function run() {
         let zipPath = core.getInput('zipPath');
         const makeZip = core.getInput('makeZip').toLowerCase() === 'true';
         const packageMode = core.getInput('packageMode') || 'all';
+        const pruneOldest = core.getInput('pruneOldestVersion').toLowerCase() === 'true';
         const skipUpload = core.getInput('skipUpload').toLowerCase() === 'true';
         const createIfMissing = core.getInput('createIfMissing').toLowerCase() !== 'false';
         const assetVersion = core.getInput('assetVersion') || '1.0.0';
@@ -320413,7 +320415,7 @@ async function run() {
                     }
                     core.info('Uploading escrowed version ...');
                     if (escrowedId)
-                        uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies, assetVersion);
+                        uploadedForDeployment = await uploadZip(zipPaths.escrowed, escrowedId, chunkSize, cookies, assetVersion, pruneOldest);
                 }
                 // Upload open source version
                 if (zipPaths.openSource && shouldCreateOpenSource) {
@@ -320442,7 +320444,7 @@ async function run() {
                     }
                     core.info('Uploading open source version ...');
                     if (openSourceId) {
-                        const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies, assetVersion);
+                        const uploadedOpenSource = await uploadZip(zipPaths.openSource, openSourceId, chunkSize, cookies, assetVersion, pruneOldest);
                         uploadedForDeployment ??= uploadedOpenSource;
                     }
                 }
@@ -320459,7 +320461,7 @@ async function run() {
                         ? `Using existing asset "${assetName}" (ID: ${existing})`
                         : `Asset "${assetName}" was not found; creating it`);
                     uploadedForDeployment = existing
-                        ? await uploadZip(zipPath, existing, chunkSize, cookies, assetVersion)
+                        ? await uploadZip(zipPath, existing, chunkSize, cookies, assetVersion, pruneOldest)
                         : await createAsset(zipPath, assetName, assetVersion, chunkSize, cookies);
                 }
                 else {
@@ -320468,7 +320470,7 @@ async function run() {
                         assetId = await (0, utils_1.resolveAssetId)(assetName, cookies);
                     }
                     zipPath = await getZipPath(assetName, zipPath, makeZip, packageMode);
-                    uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies, assetVersion);
+                    uploadedForDeployment = await uploadZip(zipPath, assetId, chunkSize, cookies, assetVersion, pruneOldest);
                 }
             }
             // Deploy after successful upload
@@ -320674,7 +320676,19 @@ async function startReupload(zipPath, assetId, chunkSize, cookies, version) {
  * @returns {Promise<void>} Resolves when the upload is complete.
  * @throws If the upload fails at any stage.
  */
-async function uploadZip(zipPath, assetId, chunkSize, cookies, version) {
+async function uploadZip(zipPath, assetId, chunkSize, cookies, version, pruneOldest) {
+    if (pruneOldest) {
+        const size = (0, fs_1.statSync)(zipPath).size;
+        if (!size || chunkSize <= 0)
+            throw new Error('Asset ZIP must be nonempty and chunkSize positive');
+        core.startGroup('CFX / Pre-upload version cleanup');
+        try {
+            await (0, prune_version_1.pruneOldestVersion)(assetId, cookies, version);
+        }
+        finally {
+            core.endGroup();
+        }
+    }
     const uploaded = await startReupload(zipPath, assetId, chunkSize, cookies, version);
     const versionPath = `assets/${uploaded.assetId}/versions/${uploaded.versionId}`;
     let chunkIndex = 0;
@@ -320989,6 +321003,99 @@ function safePreview(value, secrets) {
         // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x1f\x7f]/g, ' ');
     return text.length > 3000 ? `${text.slice(0, 3000)}… (truncated)` : text;
+}
+
+
+/***/ }),
+
+/***/ 98010:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.oldestRemovableVersion = oldestRemovableVersion;
+exports.pruneOldestVersion = pruneOldestVersion;
+const core = __importStar(__nccwpck_require__(37484));
+const axios_1 = __importDefault(__nccwpck_require__(87269));
+const portal_log_1 = __nccwpck_require__(23878);
+const types_1 = __nccwpck_require__(38522);
+/** Oldest creation ID wins; never remove the only downloadable version. */
+function oldestRemovableVersion(asset) {
+    if (!Array.isArray(asset.versions))
+        throw new Error('Portal did not return a version list; refusing to delete');
+    if (asset.versions.length < 2)
+        return undefined;
+    const ids = asset.versions.map(version => version.id);
+    if (ids.some(id => !Number.isSafeInteger(id) || id <= 0) ||
+        new Set(ids).size !== ids.length)
+        throw new Error('Portal returned invalid or duplicate version IDs');
+    const oldest = Math.min(...ids);
+    const remainingDownloadable = asset.versions.some(version => version.id !== oldest &&
+        version.state === 'active' &&
+        Array.isArray(version.packs) &&
+        version.packs.length > 0);
+    if (!remainingDownloadable)
+        throw new Error(`Cannot delete oldest version ${oldest}: no other active downloadable version would remain`);
+    return oldest;
+}
+/** Pre-upload stage for an existing asset only. */
+async function pruneOldestVersion(assetId, cookie, uploadingVersion) {
+    const id = Number(assetId);
+    if (!Number.isSafeInteger(id) || id <= 0)
+        throw new Error(`Invalid Portal asset ID: ${assetId}`);
+    const url = `${types_1.Urls.API}assets/${id}`;
+    const response = await (0, portal_log_1.logPortalRequest)(`GET /assets/${id} (pre-upload version inventory)`, async () => axios_1.default.get(url, { headers: { Cookie: cookie } }), [cookie]);
+    const asset = response.data;
+    if (asset?.id !== id)
+        throw new Error('Portal asset ID changed; refusing to delete a version');
+    if (asset.versions?.some(version => version.version === uploadingVersion))
+        throw new Error(`Version ${uploadingVersion} already exists on asset ${id}; refusing to delete another version`);
+    const oldest = oldestRemovableVersion(asset);
+    if (oldest === undefined) {
+        core.info(`[CFX] Asset ${id} has ${asset.versions.length} version(s); skipping pre-upload deletion`);
+        return;
+    }
+    core.info(`[CFX] Deleting oldest version ${oldest} from asset ${id} before upload (${asset.versions.length} versions)`);
+    await (0, portal_log_1.logPortalRequest)(`DELETE /assets/${id}/versions/${oldest}`, async () => axios_1.default.delete(`${url}/versions/${oldest}`, {
+        headers: { Cookie: cookie }
+    }), [cookie]);
 }
 
 

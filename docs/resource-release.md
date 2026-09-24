@@ -84,24 +84,25 @@ runtime selection remain the custom packager's responsibility.
 
 ## Inputs
 
-| Input               | Meaning                                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------------------- |
-| `resource-name`     | Required archive root and deploy resource name, e.g. `sa_garage`                                    |
-| `asset-name`        | CFX display name; defaults to `resource-name`                                                       |
-| `runners`           | JSON runner-label array; default `["ubuntu-latest"]`                                                |
-| `node-version`      | Node version for project commands; default `22`                                                     |
-| `node-version-file` | Optional caller version file; overrides `node-version`                                              |
-| `manifest-path`     | Workspace-relative source manifest; default `fxmanifest.lua`; its parent is the runtime source root |
-| `version-mode`      | `run`: MAJOR.run_number.run_attempt; `manifest`: preserve the version                               |
-| `web-artifact-name` | Optional CI artifact from the same workflow run                                                     |
-| `web-build-path`    | Resource-relative production web directory; paired with web-artifact-name                           |
-| `package-mode`      | `auto` (default), `runtime` or `custom`                                                             |
-| `package-command`   | Required only in custom mode                                                                        |
-| `package-zip`       | Workspace-relative custom output ZIP path; required only in custom mode                             |
-| `deploy-branch`     | Branch allowed to upload to CFX and deploy; default `master`                                        |
-| `deploy`            | Default `true`; `false` uploads to CFX without SSH deployment                                       |
-| `ssh-port`          | Default `22`                                                                                        |
-| `backup-path`       | Default `~/.cfx-portal-upload/backups`                                                              |
+| Input                  | Meaning                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `resource-name`        | Required archive root and deploy resource name, e.g. `sa_garage`                                    |
+| `asset-name`           | CFX display name; defaults to `resource-name`                                                       |
+| `runners`              | JSON runner-label array; default `["ubuntu-latest"]`                                                |
+| `node-version`         | Node version for project commands; default `22`                                                     |
+| `node-version-file`    | Optional caller version file; overrides `node-version`                                              |
+| `manifest-path`        | Workspace-relative source manifest; default `fxmanifest.lua`; its parent is the runtime source root |
+| `version-mode`         | `run`: MAJOR.run_number.run_attempt; `manifest`: preserve the version                               |
+| `web-artifact-name`    | Optional CI artifact from the same workflow run                                                     |
+| `web-build-path`       | Resource-relative production web directory; paired with web-artifact-name                           |
+| `package-mode`         | `auto` (default), `runtime` or `custom`                                                             |
+| `package-command`      | Required only in custom mode                                                                        |
+| `package-zip`          | Workspace-relative custom output ZIP path; required only in custom mode                             |
+| `prune-oldest-version` | Default `false`; opt in to deleting the oldest Portal version before upload when safe.              |
+| `deploy-branch`        | Branch allowed to upload to CFX and deploy; default `master`                                        |
+| `deploy`               | Default `true`; `false` uploads to CFX without SSH deployment                                       |
+| `ssh-port`             | Default `22`                                                                                        |
+| `backup-path`          | Default `~/.cfx-portal-upload/backups`                                                              |
 
 For a web-less resource, omit both web inputs. No artifact download or web check
 is performed. With web enabled, `index.html`, JavaScript and CSS must exist in
@@ -146,3 +147,9 @@ input on the root upload Action.
 Set `deploy-enabled: false` for artifact-only releases, without CFX upload or
 SSH deployment. No secrets are required in this mode. `deploy: false` alone
 still uploads to CFX and therefore requires `FORUM_COOKIE`.
+
+Portal deletion is irreversible and happens before the new version is
+initialized. The root upload Action exposes `pruneOldestVersion` and also
+defaults it to `false`. The garage caller example explicitly opts in. A new
+asset or an asset with one version is never pruned. If no other version is
+confirmed downloadable, the upload fails before deleting.
