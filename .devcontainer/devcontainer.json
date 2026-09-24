@@ -1,7 +1,7 @@
 {
   "name": "GitHub Actions (TypeScript)",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
-  "postCreateCommand": "npm install",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "postCreateCommand": "npm install && npm install -g @openai/codex",
   "customizations": {
     "codespaces": {
       "openFiles": ["README.md"]
@@ -14,6 +14,7 @@
         "esbenp.prettier-vscode",
         "github.copilot",
         "github.copilot-chat",
+        "openai.chatgpt",
         "github.vscode-github-actions",
         "github.vscode-pull-request-github",
         "me-dutour-mathieu.vscode-github-actions",
