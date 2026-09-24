@@ -197,7 +197,7 @@ jobs:
   deploy:
     name: Upload and deploy ${{ inputs['resource-name'] }}
     needs: package
-    if: inputs['deploy-enabled'] && github.ref_name == inputs['deploy-branch']
+    if: (inputs['deploy-enabled'] || vars.ENABLE_CFX_DEPLOY == 'true') && github.ref_name == inputs['deploy-branch']
     runs-on: ${{ fromJSON(inputs.runners) }}
     timeout-minutes: 30
     steps:
