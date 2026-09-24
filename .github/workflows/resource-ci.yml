@@ -42,7 +42,13 @@ jobs:
         run: |
           set -euo pipefail
           test -f fxmanifest.lua
-          git ls-files -z -- '*.lua' | xargs -0 -r -n 1 luac5.4 -p
+          while IFS= read -r -d '' file; do
+            if LC_ALL=C grep -q '`' "$file"; then
+              echo "Skipping FiveM backtick syntax: $file"
+            else
+              luac5.4 -p "$file"
+            fi
+          done < <(git ls-files -z -- '*.lua')
 
   web:
     name: Build web UI
