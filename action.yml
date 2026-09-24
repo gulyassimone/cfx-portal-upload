@@ -81,14 +81,12 @@ inputs:
   deploy_path:
     description: 'Path to resources folder on server'
     required: false
-    default: '~/fivem/resources'
   deploy_resource_name:
     description: 'Resource folder name on server (defaults to asset_name)'
     required: false
   deploy_backup_path:
     description: 'Backup directory outside the resources directory'
     required: false
-    default: '~/.cfx-portal-upload/backups'
   rollback:
     description: 'Restore a selected deployment backup instead of uploading'
     required: false

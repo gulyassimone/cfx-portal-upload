@@ -1,3 +1,4 @@
+import { getDeployPaths } from './deploy-config'
 import { logPortalRequest } from './portal-log'
 import * as core from '@actions/core'
 import puppeteer, { Browser, Page } from 'puppeteer'
@@ -42,10 +43,8 @@ export async function run(): Promise<void> {
       const sshUser = core.getInput('ssh_user')
       const sshKey = core.getInput('ssh_key')
       const sshPort = parseInt(core.getInput('ssh_port') || '22')
-      const deployPath = core.getInput('deploy_path') || '~/fivem/resources'
+      const { deployPath, backupPath } = getDeployPaths()
       const resourceName = core.getInput('deploy_resource_name')
-      const backupPath =
-        core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups'
       const backupId = core.getInput('rollback_backup')
 
       if (!sshHost || !sshUser || !sshKey || !resourceName || !backupId) {
@@ -107,17 +106,15 @@ export async function run(): Promise<void> {
     const sshUser = core.getInput('ssh_user')
     const sshKey = core.getInput('ssh_key')
     const sshPort = parseInt(core.getInput('ssh_port') || '22')
-    const deployPath = core.getInput('deploy_path') || '~/fivem/resources'
+    const { deployPath, backupPath } = getDeployPaths()
     const deployResourceName = core.getInput('deploy_resource_name')
-    const deployBackupPath =
-      core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups'
     const discordWebhook = core.getInput('discord_webhook')
 
     const deployConfig: DeployConfig = {
       enabled: deployEnabled && !!sshHost && !!sshUser && !!sshKey,
       deployPath,
       resourceName: deployResourceName || undefined,
-      backupPath: deployBackupPath
+      backupPath
     }
 
     if (deployConfig.enabled) {

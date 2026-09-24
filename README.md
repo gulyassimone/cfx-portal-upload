@@ -181,8 +181,17 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
     ssh_host: ${{ secrets.SERVER_HOST }}
     ssh_user: ${{ secrets.SERVER_USER }}
     ssh_key: ${{ secrets.SSH_KEY }}
-    deploy_path: '~/fivem/resources'
+    deploy_path: ${{ vars.DEPLOY_PATH }}
 ```
+
+The default deployment directory is `/sftp/deploy/resources`. Both deployment
+and rollback read their path defaults from `getDeployPaths()` in
+`src/deploy-config.ts`. Set the repository variable `DEPLOY_PATH` to override it
+centrally in the workflows above and below; an empty value uses the default.
+The path is configuration, not a credential. If you want it masked in logs,
+use `${{ secrets.DEPLOY_PATH }}` instead. Keep `ssh_key` and the forum cookie in
+GitHub Secrets. The path must exist or be creatable in the SSH shell's filesystem;
+an SFTP-only account is insufficient because deployment runs shell commands.
 
 ### Deploy with Custom Resource Name
 
@@ -197,7 +206,7 @@ Automatically deploy assets to your FiveM server after uploading to the portal.
     ssh_host: ${{ secrets.SERVER_HOST }}
     ssh_user: ${{ secrets.SERVER_USER }}
     ssh_key: ${{ secrets.SSH_KEY }}
-    deploy_path: '~/server-data/resources/[scripts]'
+    deploy_path: ${{ vars.DEPLOY_PATH }}
     deploy_resource_name: 'my-resource'
 ```
 
@@ -225,7 +234,7 @@ To manually restore a backup, run the action with the selected identifier:
     ssh_host: ${{ secrets.SERVER_HOST }}
     ssh_user: ${{ secrets.SERVER_USER }}
     ssh_key: ${{ secrets.SSH_KEY }}
-    deploy_path: '~/server-data/resources'
+    deploy_path: ${{ vars.DEPLOY_PATH }}
 ```
 
 Rollback replaces the whole resource directory, removing files introduced by the

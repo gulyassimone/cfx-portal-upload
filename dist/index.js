@@ -319619,6 +319619,58 @@ function bufferIncludes(buffer, content) {
 
 /***/ }),
 
+/***/ 29531:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getDeployPaths = getDeployPaths;
+const core = __importStar(__nccwpck_require__(37484));
+/** Shared by deployment and rollback; keep path defaults in one place. */
+function getDeployPaths() {
+    return {
+        deployPath: core.getInput('deploy_path') || '/sftp/deploy/resources',
+        backupPath: core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups'
+    };
+}
+
+
+/***/ }),
+
 /***/ 29880:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -320121,6 +320173,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.run = run;
+const deploy_config_1 = __nccwpck_require__(29531);
 const portal_log_1 = __nccwpck_require__(23878);
 const core = __importStar(__nccwpck_require__(37484));
 const puppeteer_1 = __importDefault(__nccwpck_require__(57699));
@@ -320145,9 +320198,8 @@ async function run() {
             const sshUser = core.getInput('ssh_user');
             const sshKey = core.getInput('ssh_key');
             const sshPort = parseInt(core.getInput('ssh_port') || '22');
-            const deployPath = core.getInput('deploy_path') || '~/fivem/resources';
+            const { deployPath, backupPath } = (0, deploy_config_1.getDeployPaths)();
             const resourceName = core.getInput('deploy_resource_name');
-            const backupPath = core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups';
             const backupId = core.getInput('rollback_backup');
             if (!sshHost || !sshUser || !sshKey || !resourceName || !backupId) {
                 throw new Error('Rollback requires ssh_host, ssh_user, ssh_key, deploy_resource_name and rollback_backup');
@@ -320193,15 +320245,14 @@ async function run() {
         const sshUser = core.getInput('ssh_user');
         const sshKey = core.getInput('ssh_key');
         const sshPort = parseInt(core.getInput('ssh_port') || '22');
-        const deployPath = core.getInput('deploy_path') || '~/fivem/resources';
+        const { deployPath, backupPath } = (0, deploy_config_1.getDeployPaths)();
         const deployResourceName = core.getInput('deploy_resource_name');
-        const deployBackupPath = core.getInput('deploy_backup_path') || '~/.cfx-portal-upload/backups';
         const discordWebhook = core.getInput('discord_webhook');
         const deployConfig = {
             enabled: deployEnabled && !!sshHost && !!sshUser && !!sshKey,
             deployPath,
             resourceName: deployResourceName || undefined,
-            backupPath: deployBackupPath
+            backupPath
         };
         if (deployConfig.enabled) {
             deployConfig.sshConfig = {
