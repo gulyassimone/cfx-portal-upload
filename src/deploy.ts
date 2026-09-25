@@ -230,6 +230,7 @@ export async function deployToServer(
           const commands = [
             `mkdir -p ${remotePathQuote(snapshotPath)}`,
             `if [ -d ${remotePathQuote(resourcePath)} ]; then cp -a ${remotePathQuote(resourcePath)}/. ${remotePathQuote(snapshotPath)}/; fi`,
+            `rm -rf -- ${remotePathQuote(resourcePath)}`,
             `mkdir -p ${remotePathQuote(deployPath)}`,
             `unzip -o ${shellQuote(remoteTempPath)} -d ${remotePathQuote(deployPath)}`,
             `rm -f ${shellQuote(remoteTempPath)}`

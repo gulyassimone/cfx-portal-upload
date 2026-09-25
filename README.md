@@ -224,7 +224,10 @@ another active version.
 
 Each deployment first saves the complete current resource directory outside
 `deploy_path`. The backup identifier contains the UTC timestamp and the GitHub
-ref or commit. Deployment is reported as installed, but not yet verified:
+ref or commit. After a successful backup, deployment removes the existing resource
+directory before extracting the new ZIP, so files removed from the release do not
+remain on the server. If the backup fails, deletion and extraction are skipped.
+Deployment is reported as installed, but not yet verified:
 neither deployment nor rollback restarts the server.
 
 To manually restore a backup, run the action with the selected identifier:
